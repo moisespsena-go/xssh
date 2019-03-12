@@ -100,7 +100,9 @@ func (s *Service) forever(ln *ServiceListener) {
 	for ln.Listener != nil {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Println("["+ln.ID+"] accept failed:", err)
+			if err != io.EOF {
+				log.Println("["+ln.ID+"] accept failed:", err)
+			}
 			return
 		}
 		go s.proxy(ln, conn)
