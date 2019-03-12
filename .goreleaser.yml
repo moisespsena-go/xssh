@@ -9,6 +9,8 @@ before:
 builds:
 - env:
   - CGO_ENABLED=1
+  ignore:
+    - goos: darwin
 archive:
   replacements:
     darwin: Darwin
