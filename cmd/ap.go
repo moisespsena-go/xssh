@@ -49,8 +49,12 @@ Example:
 			serverAddr       string
 			sshAddr          string
 			reconnectTimeout string
+			enableSSH        bool
 		)
 
+		if enableSSH, err = cmd.Flags().GetBool("ssh"); err != nil {
+			return
+		}
 		if connectionsCount, err = cmd.Flags().GetInt("connections-count"); err != nil {
 			return
 		}
@@ -87,11 +91,10 @@ Example:
 			services[parts[0]] = srvc
 		}
 
-		/*
-		ssh := ap.SSHServer(keyFile, sshAddr)
-		services["ssh"] = ssh
-		*/
-		fmt.Sprint(sshAddr)
+		if enableSSH {
+			ssh := ap.SSHServer(keyFile, sshAddr)
+			services["ssh"] = ssh
+		}
 
 		var wg sync.WaitGroup
 		wg.Add(connectionsCount)
@@ -119,6 +122,7 @@ Example:
 func init() {
 	rootCmd.AddCommand(apCmd)
 	apCmd.Flags().IntP("connections-count", "C", 1, "Number of connections. Minimum is `1`.")
+	apCmd.Flags().Bool("ssh", false, "Enable embeded SSH server")
 	apCmd.Flags().StringP("server-addr", "S", common.DefaultServerAddr, "The server addr")
 	apCmd.Flags().StringP("ssh-addr", "A", common.DefaultApAddr, "The embeded SSH server addr")
 	apCmd.Flags().StringP("reconnect-timeout", "T", defaultReconnectTimeout, reconnectTimeoutUsage)
