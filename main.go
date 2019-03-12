@@ -16,6 +16,13 @@ package main
 
 import "github.com/moisespsena-go/xssh/cmd"
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
+	cmd.Version, cmd.Commit, cmd.Date = version, commit, date
 	cmd.Execute()
 }

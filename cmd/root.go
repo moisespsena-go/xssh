@@ -1,4 +1,4 @@
-// Copyright © 2019 NAME HERE <EMAIL ADDRESS>
+// Copyright © 2019 Moises P. Sena <moisespsena@gmail.com>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,6 +34,12 @@ var rootCmd = &cobra.Command{
 	Use:   "xssh",
 	Short: "X-SSH - The Extreme SSH tool",
 }
+
+var (
+	Version = "dev"
+	Commit  = "none"
+	Date    = "unknown"
+)
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
