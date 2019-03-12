@@ -38,7 +38,7 @@ create table if not exists load_balancers (
 	ap VARCHAR(50) NOT NULL, 
 	service VARCHAR(50) NOT NULL, 
 	max_count INT NOT NULL DEFAULT 2, 
-	public_addr VARCHAR(255) NOT NULL, 
+	public_addr VARCHAR(255), 
 	PRIMARY KEY (ap, service), 
 	UNIQUE (public_addr)
 );

@@ -40,6 +40,7 @@ var serveCmd = &cobra.Command{
 				LoadBalancers:  server.NewLoadBalancers(DB),
 				NodeSockerPerm: 0666,
 			}
+
 			s.Serve()
 			return nil
 		})

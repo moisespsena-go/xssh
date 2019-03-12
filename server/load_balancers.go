@@ -7,8 +7,9 @@ import (
 )
 
 type LoadBalancer struct {
-	Ap, Service, PublicAddr string
-	MaxCount                int
+	Ap, Service string
+	PublicAddr  *string
+	MaxCount    int
 
 	*Nodes
 }

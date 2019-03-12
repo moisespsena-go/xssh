@@ -66,9 +66,11 @@ func (ns *Nodes) Add(LB *LoadBalancer, ln *ServiceListener) (node *Node, err err
 	)
 
 	if n, ok = ns.data[LB.Ap][LB.Service]; !ok {
-		publicAddr := LB.PublicAddr
-		if publicAddr == "" {
+		var publicAddr string
+		if LB.PublicAddr == nil || *LB.PublicAddr == "" {
 			publicAddr = "localhost:0"
+		} else {
+			publicAddr = *LB.PublicAddr
 		}
 
 		n = &Node{
