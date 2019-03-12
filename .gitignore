@@ -1,2 +1,5 @@
 # All hidden files
 .*
+
+xssh*
+vendor
