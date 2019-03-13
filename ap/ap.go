@@ -13,7 +13,7 @@ import (
 )
 
 type Ap struct {
-	ID string
+	ID         string
 	ServerAddr string
 	ApName     string
 	KeyFile    string
@@ -26,14 +26,18 @@ type Ap struct {
 
 	wg *sync.WaitGroup
 
-	delayer *common.Delayer
+	delayer         *common.Delayer
+	registerDelayer *common.Delayer
+	registered      map[string]*ServiceListener
 }
 
 func New(apName string) *Ap {
 	c := &Ap{
-		ApName:     apName,
-		ServerAddr: common.DefaultServerAddr,
-		delayer:    common.NewDelayer(time.Second * 2),
+		ApName:          apName,
+		ServerAddr:      common.DefaultServerAddr,
+		delayer:         common.NewDelayer(time.Second * 2),
+		registerDelayer: common.NewDelayer(time.Second * 5),
+		registered:      map[string]*ServiceListener{},
 	}
 	return c
 }
@@ -55,6 +59,7 @@ func (c *Ap) Close() error {
 	for _, sl := range c.Services {
 		sl.Close()
 	}
+	c.registerDelayer.Close()
 	return c.delayer.Close()
 }
 
@@ -62,39 +67,61 @@ func (c *Ap) run() {
 	var err error
 	c.client, err = c.connectToHost()
 
-	log.Println("#" + c.ID + " connecting to server", c.ServerAddr)
+	log.Println("#"+c.ID+" connecting to server", c.ServerAddr)
 
 	if err != nil {
-		log.Println("#" + c.ID + " connect to server", c.ServerAddr, "failed:", err)
+		log.Println("#"+c.ID+" connect to server", c.ServerAddr, "failed:", err)
 		return
 	}
-	log.Println("#" + c.ID + " connected to server", c.ServerAddr)
+	log.Println("#"+c.ID+" connected to server", c.ServerAddr)
 
 	go func() {
 		if err := c.client.Wait(); err != nil && err != io.EOF {
-			log.Println("#" + c.ID + " client closed with error: ", err)
+			log.Println("#"+c.ID+" client closed with error: ", err)
 		} else {
 			log.Println("#" + c.ID + " client closed")
 		}
 		c.client = nil
 	}()
 
-	if c.Services != nil {
-		for name, sl := range c.Services {
-			log.Println("#" + c.ID + " {"+name+"} remote listen")
-			ln, err := c.client.Listen("unix", sl.Name)
-			if err != nil {
-				log.Println("#" + c.ID + " {"+name+"} remote listen failed:", err)
+	go func() {
+		for c.client != nil && !c.closed {
+			for name, sl := range c.Services {
+				if _, ok := c.registered[name]; ok {
+					continue
+				}
+
+				log.Println("#" + c.ID + " {" + name + "} remote listen")
+				ln, err := c.client.Listen("unix", sl.Name)
+				if err != nil {
+					log.Println("#"+c.ID+" {"+name+"} remote listen failed:", err)
+					continue
+				}
+				ssl := sl.Register(c.ID, ln)
+				ssl.OnClose(func() {
+					if c.registered != nil {
+						if _, ok := c.registered[name]; ok {
+							delete(c.registered, name)
+						}
+					}
+				})
+				c.registered[name] = ssl
 			}
-			defer sl.Register(c.ID, ln).Close()
+			c.registerDelayer.Wait()
 		}
-	}
+	}()
+
+	defer func() {
+		for _, ssl := range c.registered {
+			ssl.Close()
+		}
+	}()
 
 	for c.client != nil {
 		<-time.After(time.Second * 30)
 		if c.client != nil {
 			if _, _, err := c.client.SendRequest("", false, nil); err != nil && c.client != nil {
-				log.Println("#" + c.ID + " ERROR: failed to send PING request:", err.Error())
+				log.Println("#"+c.ID+" ERROR: failed to send PING request:", err.Error())
 			}
 		}
 	}
@@ -112,11 +139,11 @@ func (c *Ap) remoteForever() {
 func (c Ap) connectToHost() (*gossh.Client, error) {
 	buf, err := ioutil.ReadFile(common.GetKeyFile(c.KeyFile))
 	if err != nil {
-		log.Fatalf("#" + c.ID + " Load Key failed %v", err)
+		log.Fatalf("#"+c.ID+" Load Key failed %v", err)
 	}
 	key, err := gossh.ParsePrivateKey(buf)
 	if err != nil {
-		log.Fatalf("#" + c.ID + " parse Key failed %v", err)
+		log.Fatalf("#"+c.ID+" parse Key failed %v", err)
 	}
 
 	sshConfig := &gossh.ClientConfig{

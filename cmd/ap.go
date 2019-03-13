@@ -29,18 +29,93 @@ import (
 const defaultReconnectTimeout = "15s"
 
 var apCmd = &cobra.Command{
-	Use:   "ap NAME SERVICE...",
+	Use:   "ap NAME SERVICE_DSN...",
 	Short: "X-SSH Access Point",
 	Long: `X-SSH Access Point
 
-# SERVICE
+# SERVICE_DSN
 
-Pair or NAME/ADDR.
+Pair or NAME/ADDR[/CONNECTION_COUNT].
 
-Example:
-- SSH/localhost:22 (for ssh service, use in UPPER CASE)
-- http/192.168.1.5:80
+Only TCP connections.
+
+## NAME
+
+The service name. For load balancer entry point use ` + q("*") + ` (asterisk) as prefix.
+
+Single connections examples:
+- http
+- https
+- SSH (for ssh service, use in UPPER CASE)
+- my_service
+
+Load balancer entry point examples:
+- *http
+- *https
+- *SSH
+- *my_service
+
+## ADDR
+
+If is unix socket path, use , other else,
+use ` + q("") + ` or 
+
+### Unix socket file
+
+Format: ` + q("unix:PATH") + `.
+
+Examples:
+- unix:/path/to/sockfile.sock
+- unix:/path/to/sockfile
+
+### Network Address
+
+The local service network address.
+
+Format: ` + q("HOST:PORT") + `.
+
+#### HOST
+Format: ` + q("HOST_ADDR[%ZONE]") + ` 
+
+*HOST_ADDR*: Accepts ` + q("IPv4") + ` or ` + q("IPv6") + ` or ` + q("HOST_NAME") + `.
+For localhost, use ` + q("localhost") + ` or just ` + q("lo") + `.
+
+*ZONE*: The zone. Example:  ` + q("%eth2") + `, ` + q("%wlan0") + `
+
+Examples:
+- 192.168.2.5
+- 192.168.2.5%eth0
+- [2001:db8::1%eth0]
+
+#### Examples
+
+- localhost:80
+- lo:80
+- 127.0.0.1:443
+- 192.168.2.5:5000
+- 192.168.2.5%wlan0:5000
+- [2001:db8::1]:8080
+- [2001:db8::1%eth0]:8080
+
+## CONNECTION_COUNT
+
+The connection count of service. This value is optional.
+If is not defined, uses value of ` + q("connectiond-count") + ` flag.
+
+## Complete examples
+
+Default:
+- SSH/lo:22
+- SSH/localhost:22
+- http/192.168.1.5%eth0:80
 - https/192.168.1.5:443
+- my_service/[2001:db8::1]:8080
+
+With connection count:
+- SSH/lo:22/6
+- http/192.168.1.5:5%eth0:80/9
+- https/192.168.1.5:443/4
+- my_service/[2001:db8::1]:8080/2
 `,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (err error) {
@@ -80,15 +155,33 @@ Example:
 		}
 
 		var services = map[string]*ap.Service{}
+		var servicesConfig []ap.ServiceConfig
 
-		for _, service := range args[1:] {
-			parts := strings.Split(service, "/")
-			if parts[0] == "ssh" {
-				parts[0] = strings.ToUpper(parts[0])
+		for i, dsn := range args[1:] {
+			cfg, err := ap.ParseServiceDSN(dsn)
+			if err != nil {
+				return fmt.Errorf("Parse SERVICE_DSN[%d] `%v` failed: %v", i, dsn, err)
 			}
-			srvc := &ap.Service{Name: parts[0], Addr: parts[1]}
-			log.Println(fmt.Sprintf("Service %q -> %s", parts[0], parts[1]))
-			services[parts[0]] = srvc
+
+			if cfg.Name == "ssh" || cfg.Name == "*ssh" {
+				cfg.Name = strings.ToUpper(cfg.Name)
+			}
+
+			if cfg.ConnectionsCount == 0 || cfg.ConnectionsCount > connectionsCount {
+				cfg.ConnectionsCount = connectionsCount
+			}
+
+			servicesConfig = append(servicesConfig, cfg)
+
+			var addr string
+			if cfg.SocketPath != "" {
+				addr = "unix:" + cfg.SocketPath
+			} else {
+				addr = cfg.NetAddr
+			}
+			srvc := &ap.Service{Name: cfg.Name, Addr: addr}
+			log.Println(fmt.Sprintf("Service `%v` -> `%s`", dsn, cfg))
+			services[cfg.Name] = srvc
 		}
 
 		if enableSSH {
@@ -99,10 +192,21 @@ Example:
 		var wg sync.WaitGroup
 		wg.Add(connectionsCount)
 
-		for i := 0; i <= connectionsCount; i++ {
+		for i := 1; i <= connectionsCount; i++ {
 			Ap := ap.New(args[0])
-			Ap.ID = fmt.Sprintf("C%02d", i+1)
-			Ap.Services = services
+			Ap.ID = fmt.Sprintf("C%02d", i)
+			Ap.Services = map[string]*ap.Service{}
+
+			for _, cfg := range servicesConfig {
+				if cfg.ConnectionsCount >= i {
+					Ap.Services[cfg.Name] = services[cfg.Name]
+				}
+			}
+
+			if len(Ap.Services) == 0 {
+				break
+			}
+
 			Ap.KeyFile = keyFile
 			Ap.ServerAddr = serverAddr
 			Ap.SetReconnectTimeout(d)
