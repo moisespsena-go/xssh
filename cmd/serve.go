@@ -15,8 +15,12 @@
 package cmd
 
 import (
+	"fmt"
+
+	"github.com/anmitsu/go-shlex"
 	"github.com/moisespsena-go/xssh/common"
 	"github.com/moisespsena-go/xssh/server"
+	"github.com/moisespsena-go/xssh/server/updater"
 	"github.com/spf13/cobra"
 )
 
@@ -27,12 +31,28 @@ var serveCmd = &cobra.Command{
 	Short: "X-SSH The server",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		addr, _ := cmd.Flags().GetString("addr")
+		updaterCmd, _ := cmd.Flags().GetString("updater-cmd")
+		updaterAddr, _ := cmd.Flags().GetString("updater-addr")
+
 		if addr == "" {
 			addr = common.DefaultServerPublicAddr
 		}
 
+		var Updater updater.Updater
+
+		if updaterCmd != "" {
+			updaterCmdArgs, err := shlex.Split(updaterCmd, true)
+			if err != nil {
+				return fmt.Errorf("parse updater-cmd flag value: %v", err)
+			}
+			Updater = updater.NewCommandUpdater(updaterCmdArgs[0], updaterCmdArgs[1:]...)
+		} else if updaterAddr != "" {
+			Updater = updater.NewNetUpdater(updaterAddr)
+		}
+
 		return withDB(func(DB *server.DB) error {
 			s := server.Server{
+				Updater:        Updater,
 				SocketsDir:     "sockets",
 				KeyFile:        keyFile,
 				Addr:           addr,
@@ -50,5 +70,7 @@ var serveCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(serveCmd)
 	serveCmd.Flags().StringP("addr", "a", common.DefaultServerPublicAddr, "Public addr (default is `"+common.DefaultServerPublicAddr+"`).")
+	serveCmd.Flags().String("updater-cmd", "", "Updater command")
+	serveCmd.Flags().String("updater-addr", "", "Updater Addr")
 	serveCmd.PersistentFlags().StringVar(&dbName, "db", dbName, "SQLite 3 database file")
 }

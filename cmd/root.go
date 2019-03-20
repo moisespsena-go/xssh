@@ -35,11 +35,7 @@ var rootCmd = &cobra.Command{
 	Short: "X-SSH - The Extreme SSH tool",
 }
 
-var (
-	Version = "dev"
-	Commit  = "none"
-	Date    = "unknown"
-)
+var Version common.Version
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
@@ -57,7 +53,9 @@ func init() {
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
 	if len(os.Args) >= 2 && os.Args[1] != "completion" {
-		os.Stderr.WriteString(banner)
+		if os.Getenv("OVERSEER_IS_SLAVE") == "" {
+			os.Stderr.WriteString(banner)
+		}
 		rootCmd.PersistentFlags().StringVarP(&keyFile, "key-file", "i", keyFile, "ssh id file")
 	}
 }

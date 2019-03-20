@@ -112,15 +112,15 @@
   revision = "c2b33e84"
 
 [[projects]]
-  branch = "master"
-  digest = "1:e571de6b22dfc9d9f0b40935df2cf7eda64bba040bc0e2dc242fbac6fb5fb5d6"
+  branch = "crontab"
+  digest = "1:a41e830b5b9062409d27e5047f29ba40f6310fe073dcf8c9cb8256bd450c4a0e"
   name = "github.com/jpillora/overseer"
   packages = [
     ".",
     "fetcher",
   ]
   pruneopts = "UT"
-  revision = "9891188db5a5bdae87416218253ac3a5ed4aed8a"
+  revision = "2ff67758aa6aeff77c259651c3cf553ae2c6a5de"
   source = "github.com/moisespsena-go/overseer"
 
 [[projects]]
@@ -173,14 +173,14 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:4a36fc192255a4c4494d07cd9a8744d1fe9eab6de5542da25377e2d16a927be9"
+  digest = "1:3151e985480a33f25525d1345e68d2a488c2fa80fb46358bd16cfa38aac103ee"
   name = "github.com/moisespsena-go/task"
   packages = [
     ".",
     "restarts",
   ]
   pruneopts = "UT"
-  revision = "25b542f198b5530d97c5c81ec25ced9ceb89b264"
+  revision = "40907444d35260b0ec04f1850edba9d5355688c9"
 
 [[projects]]
   branch = "master"
@@ -215,6 +215,14 @@
   version = "v1"
 
 [[projects]]
+  digest = "1:ee4d4af67d93cc7644157882329023ce9a7bcfce956a079069a9405521c7cc8d"
+  name = "github.com/opencontainers/go-digest"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "279bed98673dd5bef374d3b6e4b09e2af76183bf"
+  version = "v1.0.0-rc1"
+
+[[projects]]
   digest = "1:95741de3af260a92cc5c7f3f3061e85273f5a81b5db20d4bd68da74bd521675e"
   name = "github.com/pelletier/go-toml"
   packages = ["."]
@@ -229,6 +237,14 @@
   packages = ["."]
   pruneopts = "UT"
   revision = "1efae4548023f60d7a172fead76cccf194cf45de"
+
+[[projects]]
+  digest = "1:ed615c5430ecabbb0fb7629a182da65ecee6523900ac1ac932520860878ffcad"
+  name = "github.com/robfig/cron"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "b41be1df696709bb6395fe435af20370037c0b4c"
+  version = "v1.1"
 
 [[projects]]
   digest = "1:3e39bafd6c2f4bf3c76c3bfd16a2e09e016510ad5db90dc02b88e2f565d6d595"
@@ -344,9 +360,12 @@
     "github.com/moisespsena-go/task/restarts",
     "github.com/moisespsena/go-default-logger",
     "github.com/moisespsena/go-path-helpers",
+    "github.com/opencontainers/go-digest",
+    "github.com/robfig/cron",
     "github.com/spf13/cobra",
     "github.com/spf13/viper",
     "golang.org/x/crypto/ssh",
+    "gopkg.in/yaml.v2",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1

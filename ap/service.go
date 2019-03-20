@@ -42,12 +42,13 @@ func (ln *ServiceListener) close() {
 }
 
 type Service struct {
-	Name      string
-	Addr      string
-	mu        sync.Mutex
-	listeners map[string]*ServiceListener
-	lid       int
-	onClose   []func()
+	Name        string
+	Addr        string
+	ForeverFunc func(sl *ServiceListener)
+	mu          sync.Mutex
+	listeners   map[string]*ServiceListener
+	lid         int
+	onClose     []func()
 }
 
 func (s *Service) OnClose(f ...func()) *Service {
@@ -78,6 +79,7 @@ func (s *Service) proxy(sl *ServiceListener, remoteConn net.Conn) {
 	defer func() {
 		log.Println(prfx, "closed")
 	}()
+
 	if conn, err := net.Dial("tcp", s.Addr); err != nil {
 		log.Println(prfx, "net.Dial to", s.Addr, "failed:", err)
 		return
@@ -87,25 +89,29 @@ func (s *Service) proxy(sl *ServiceListener, remoteConn net.Conn) {
 	}
 }
 
-func (s *Service) forever(ln *ServiceListener) {
+func (s *Service) forever(sl *ServiceListener) {
 	defer func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.listeners != nil {
-			if _, ok := s.listeners[ln.ID]; ok {
-				delete(s.listeners, ln.ID)
+			if _, ok := s.listeners[sl.ID]; ok {
+				delete(s.listeners, sl.ID)
 			}
 		}
 	}()
-	for ln.Listener != nil {
-		conn, err := ln.Accept()
-		if err != nil {
-			if err != io.EOF {
-				log.Println("["+ln.ID+"] accept failed:", err)
+	if s.ForeverFunc != nil {
+		s.ForeverFunc(sl)
+	} else {
+		for sl.Listener != nil {
+			conn, err := sl.Accept()
+			if err != nil {
+				if err != io.EOF {
+					log.Println("["+sl.ID+"] accept failed:", err)
+				}
+				return
 			}
-			return
+			go s.proxy(sl, conn)
 		}
-		go s.proxy(ln, conn)
 	}
 }
 

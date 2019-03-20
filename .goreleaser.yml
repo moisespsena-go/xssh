@@ -7,10 +7,15 @@ before:
     # you may remove this if you don't need go generate
     - go generate ./...
 builds:
-- env:
-  - CGO_ENABLED=1
-  ignore:
-    - goos: darwin
+  -
+    env:
+      - CGO_ENABLED=1
+
+    ignore:
+      - goos: darwin
+
+    flags: "-tags resettable"
+
 archive:
   replacements:
     darwin: Darwin

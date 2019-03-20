@@ -17,9 +17,19 @@ package cmd
 import (
 	"fmt"
 	"log"
+	"net"
+	"os"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	defaultlogger "github.com/moisespsena/go-default-logger"
+	"github.com/robfig/cron"
+
+	"github.com/moisespsena-go/xssh/updater"
+
+	"github.com/moisespsena-go/task"
+	"github.com/moisespsena-go/task/restarts"
 
 	"github.com/moisespsena-go/xssh/ap"
 	"github.com/moisespsena-go/xssh/common"
@@ -29,7 +39,7 @@ import (
 const defaultReconnectTimeout = "15s"
 
 var apCmd = &cobra.Command{
-	Use:   "ap NAME SERVICE_DSN...",
+	Use:   "ap NAME[@SERVER_HOST] SERVICE_DSN...",
 	Short: "X-SSH Access Point",
 	Long: `X-SSH Access Point
 
@@ -120,12 +130,15 @@ With connection count:
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (err error) {
 		var (
-			connectionsCount int
-			serverAddr       string
-			sshAddr          string
-			reconnectTimeout string
-			enableSSH        bool
+			user                   = args[0]
+			connectionsCount, port int
+			serverAddr, host       string
+			reconnectTimeout       string
+			updateInterval         string
+			enableSSH              bool
 		)
+
+		args = args[1:]
 
 		if enableSSH, err = cmd.Flags().GetBool("ssh"); err != nil {
 			return
@@ -133,18 +146,57 @@ With connection count:
 		if connectionsCount, err = cmd.Flags().GetInt("connections-count"); err != nil {
 			return
 		}
-		if connectionsCount < 1 {
-			connectionsCount = 1
+		if port, err = cmd.Flags().GetInt("port"); err != nil {
+			return
 		}
 		if serverAddr, err = cmd.Flags().GetString("server-addr"); err != nil {
 			return
 		}
-		if sshAddr, err = cmd.Flags().GetString("ssh-addr"); err != nil {
+		if host, err = cmd.Flags().GetString("host"); err != nil {
 			return
 		}
 		if reconnectTimeout, err = cmd.Flags().GetString("reconnect-timeout"); err != nil {
 			return
 		}
+		if updateInterval, err = cmd.Flags().GetString("update-interval"); err != nil {
+			return
+		}
+
+		if connectionsCount < 1 {
+			connectionsCount = 1
+		}
+
+		if serverAddr != "" {
+			if h, p, err := net.SplitHostPort(serverAddr); err != nil {
+				return fmt.Errorf("bad `server-addr` flag value: %v", err)
+			} else {
+				host = h
+				if port, err = strconv.Atoi(p); err != nil {
+					return fmt.Errorf("bad `server-addr` flag PORT value: %v", err)
+				}
+			}
+		}
+
+		if port == 0 {
+			port = 2220
+		}
+
+		if i := strings.IndexRune(user, '@'); i > 0 {
+			user, host = user[0:i], user[i+1:]
+			if i = strings.IndexRune(host, ':'); i > 0 {
+				if port, err = strconv.Atoi(host[i+1:]); err != nil {
+					return fmt.Errorf("Parse SERVER_PORT failed: %v", err)
+				}
+				host = host[0:i]
+			}
+		}
+
+		if host == "" {
+			host = "localhost"
+		}
+
+		serverAddr = net.JoinHostPort(host, strconv.Itoa(port))
+
 		var d time.Duration
 		if d, err = time.ParseDuration(reconnectTimeout); err != nil {
 			return fmt.Errorf("bad reconnect-timeout value: %v", err)
@@ -154,21 +206,34 @@ With connection count:
 			return fmt.Errorf("bad reconnect-timeout value: minimum value is `1s` (one second)")
 		}
 
+		updateSchedule, err := cron.Parse(updateInterval)
+		if err != nil {
+			return fmt.Errorf("bad update interval: %v", err)
+		}
+
 		var services = map[string]*ap.Service{}
 		var servicesConfig []ap.ServiceConfig
 
-		for i, dsn := range args[1:] {
+		if enableSSH {
+			services["ssh"] = ap.SSHServer(keyFile)
+			servicesConfig = append(servicesConfig, ap.ServiceConfig{
+				Name:             "ssh",
+				ConnectionsCount: 1,
+			})
+		}
+
+		for i, dsn := range args {
 			cfg, err := ap.ParseServiceDSN(dsn)
 			if err != nil {
 				return fmt.Errorf("Parse SERVICE_DSN[%d] `%v` failed: %v", i, dsn, err)
 			}
 
-			if cfg.Name == "ssh" || cfg.Name == "*ssh" {
-				cfg.Name = strings.ToUpper(cfg.Name)
-			}
-
 			if cfg.ConnectionsCount == 0 || cfg.ConnectionsCount > connectionsCount {
 				cfg.ConnectionsCount = connectionsCount
+			}
+
+			if _, ok := services[cfg.Name]; ok {
+				return fmt.Errorf("Parse SERVICE_DSN[%d] `%v` failed: service has be registered", i, dsn)
 			}
 
 			servicesConfig = append(servicesConfig, cfg)
@@ -184,51 +249,81 @@ With connection count:
 			services[cfg.Name] = srvc
 		}
 
-		if enableSSH {
-			ssh := ap.SSHServer(keyFile, sshAddr)
-			services["ssh"] = ssh
+		if len(services) == 0 {
+			return fmt.Errorf("No services")
 		}
 
-		var wg sync.WaitGroup
-		wg.Add(connectionsCount)
+		var maxCc = servicesConfig[0].ConnectionsCount
 
-		for i := 1; i <= connectionsCount; i++ {
-			Ap := ap.New(args[0])
-			Ap.ID = fmt.Sprintf("C%02d", i)
-			Ap.Services = map[string]*ap.Service{}
+		for _, cfg := range servicesConfig[1:] {
+			if cfg.ConnectionsCount >= maxCc {
+				maxCc = cfg.ConnectionsCount
+			}
+		}
 
-			for _, cfg := range servicesConfig {
-				if cfg.ConnectionsCount >= i {
-					Ap.Services[cfg.Name] = services[cfg.Name]
+		if exe, err := os.Executable(); err == nil {
+			Version.Digest, _ = common.Digest(exe)
+		}
+		// factory and stop chan
+
+		t := task.FactoryFunc(func() task.Task {
+			done := make(chan interface{})
+			return task.NewTask(func() (err error) {
+				for i := 1; i <= maxCc; i++ {
+					Ap := ap.New(user)
+					if i == i {
+						Ap.Version = &Version
+					}
+					Ap.ID = fmt.Sprintf("C%02d", i)
+					Ap.Services = map[string]*ap.Service{}
+
+					for _, cfg := range servicesConfig {
+						if cfg.ConnectionsCount >= i {
+							Ap.Services[cfg.Name] = services[cfg.Name]
+						}
+					}
+
+					Ap.KeyFile = keyFile
+					Ap.ServerAddr = serverAddr
+					Ap.SetReconnectTimeout(d)
+
+					go func() {
+						defer Ap.Close()
+						Ap.Forever()
+					}()
 				}
-			}
 
-			if len(Ap.Services) == 0 {
-				break
-			}
+				<-done
+				return nil
+			}, func() {
+				close(done)
+			})
+		})
 
-			Ap.KeyFile = keyFile
-			Ap.ServerAddr = serverAddr
-			Ap.SetReconnectTimeout(d)
-
-			go func() {
-				defer Ap.Close()
-				defer wg.Done()
-				Ap.Forever()
-			}()
-		}
-
-		wg.Wait()
+		restarts.RunConfig(
+			restarts.New(t).SetLog(defaultlogger.NewLogger(os.Args[0])),
+			&restarts.Config{
+				FetchCronSchedule: &updateSchedule,
+				Fetcher: &updater.Fetcher{
+					ServerAddr: serverAddr,
+					KeyFile:    keyFile,
+					User:       user,
+				},
+			},
+		)
 		return nil
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(apCmd)
+
+	apCmd.Flags().StringP("update-interval", "U", "@every 3s", "Update check interval. This is a cron Spec.")
+	apCmd.Flags().IntP("port", "p", 2220, "XSSH server port.")
+	apCmd.Flags().StringP("host", "H", "localhost", "SERVER_HOST: The XSSH server host.")
 	apCmd.Flags().IntP("connections-count", "C", 1, "Number of connections. Minimum is `1`.")
 	apCmd.Flags().Bool("ssh", false, "Enable embeded SSH server")
-	apCmd.Flags().StringP("server-addr", "S", common.DefaultServerAddr, "The server addr")
-	apCmd.Flags().StringP("ssh-addr", "A", common.DefaultApAddr, "The embeded SSH server addr")
+	apCmd.Flags().StringP("server-addr", "S", common.DefaultServerAddr, "The XSSH server addr in `HOST:PORT` format.")
 	apCmd.Flags().StringP("reconnect-timeout", "T", defaultReconnectTimeout, reconnectTimeoutUsage)
 }
 
@@ -236,4 +331,4 @@ const reconnectTimeoutUsage = `Reconnect to server timeout.
 The value is a possibly signed sequence of decimal numbers,
 each with optional fraction and a unit suffix, such as 
 "10s", "1.5h" or "2h45m". Valid time units are "s" (second), 
-"m" (minute), "h" (hour)`
+"m" (minute), "h" (hour).`

@@ -1,11 +1,15 @@
 package common
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/opencontainers/go-digest"
 )
 
 type Copier struct {
@@ -52,5 +56,25 @@ func RemoveEmptyDir(pth string, count int) (err error) {
 		}
 		pth = filepath.Dir(pth)
 	}
+	return
+}
+
+func Digest(pth string) (v string, err error) {
+	f, err := os.Open(pth)
+	if err != nil {
+		err = fmt.Errorf("open exe failed: %v", err)
+		return
+	}
+	defer f.Close()
+
+	hash := sha256.New()
+	if _, err = io.Copy(hash, f); err != nil {
+		err = fmt.Errorf("hash process failed: %v", err)
+		return
+	}
+
+	d := digest.NewDigest(digest.SHA512, hash)
+
+	v = d.String()
 	return
 }

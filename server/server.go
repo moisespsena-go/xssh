@@ -2,11 +2,14 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/moisespsena-go/xssh/server/updater"
 
 	"github.com/moisespsena-go/xssh/common"
 
@@ -15,10 +18,11 @@ import (
 )
 
 type Server struct {
-	KeyFile    string
-	Addr       string
-	SocketsDir string
+	KeyFile        string
+	Addr           string
+	SocketsDir     string
 	NodeSockerPerm os.FileMode
+	Updater        updater.Updater
 
 	Users         *Users
 	LoadBalancers *LoadBalancers
@@ -27,9 +31,9 @@ type Server struct {
 
 func (srv *Server) Serve() {
 	srv.register = &DefaultReversePortForwardingRegister{
-		Nodes:&Nodes{
-			Dir:filepath.Join(srv.SocketsDir, "lb_nodes"),
-			SockPerm:srv.NodeSockerPerm,
+		Nodes: &Nodes{
+			Dir:      filepath.Join(srv.SocketsDir, "lb_nodes"),
+			SockPerm: srv.NodeSockerPerm,
 		},
 	}
 
@@ -46,6 +50,52 @@ func (srv *Server) Serve() {
 	log.Printf("starting ssh server on %v", ln.Addr())
 
 	ssrv = &ssh.Server{
+		Handler: func(s ssh.Session, request *gossh.Request) {
+			var (
+				uc   = updater.NewUpdaterClient(s, "AP "+s.User())
+				args = s.Command()
+			)
+
+			if len(args) == 0 {
+				s.Stderr().Write([]byte(`invalid args`))
+				return
+			}
+
+			switch args[0] {
+			case "update":
+				if srv.Updater == nil {
+					var r common.UpgradePayload
+					r.Ok = true
+					if err = r.Write(s); err != nil {
+						if err != io.EOF {
+							log.Println("Write upgrade payload failed: %v", err)
+						}
+					}
+				} else {
+					var v common.Version
+					if err = v.FRead(s); err != nil {
+						uc.Err(err.Error())
+						return
+					}
+
+					var apUV common.ApUpgradePayload
+					apUV.Ap = s.User()
+					apUV.ApAddr = s.RemoteAddr().String()
+					apUV.Version = v
+
+					if err := srv.Updater.Execute(uc, apUV); err != nil {
+						var r common.UpgradePayload
+						if err = r.ErrorF(s, err.Error()); err != nil {
+							if err != io.EOF {
+								log.Println("Write upgrade payload failed: %v", err)
+							}
+						}
+					}
+				}
+			default:
+				s.Stderr().Write([]byte("invalid command"))
+			}
+		},
 		ReversePortForwardingRegister: register,
 		ReversePortForwardingCallback: func(ctx ssh.Context, addr string) bool {
 			return strings.HasPrefix(addr, "unix") && ctx.Value("is:ap").(bool)
@@ -101,6 +151,16 @@ func (srv *Server) Serve() {
 		},
 	}
 	ssrv.RequestHandler("", ssh.RequestHandlerFunc(func(ctx ssh.Context, srv *ssh.Server, req *gossh.Request) (ok bool, payload []byte) {
+		return true, nil
+	}))
+	ssrv.RequestHandler("ap-version", ssh.RequestHandlerFunc(func(ctx ssh.Context, srv *ssh.Server, req *gossh.Request) (ok bool, payload []byte) {
+		var v common.Version
+		log.Println("[AP " + ctx.User() + "] version=" + fmt.Sprint(*v.Unmarshal(req.Payload)))
+		return true, nil
+	}))
+	ssrv.RequestHandler("cl-version", ssh.RequestHandlerFunc(func(ctx ssh.Context, srv *ssh.Server, req *gossh.Request) (ok bool, payload []byte) {
+		var v common.Version
+		log.Println("[CL " + ctx.User() + "] version=" + fmt.Sprint(*v.Unmarshal(req.Payload)))
 		return true, nil
 	}))
 	_ = ssrv.SetOption(ssh.HostKeyFile(common.GetKeyFile(srv.KeyFile)))

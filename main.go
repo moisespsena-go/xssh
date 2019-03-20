@@ -14,15 +14,32 @@
 
 package main
 
-import "github.com/moisespsena-go/xssh/cmd"
+import (
+	"runtime"
+	"time"
+	_ "unsafe"
 
-var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	"github.com/moisespsena-go/xssh/cmd"
+	"github.com/moisespsena-go/xssh/common"
 )
 
+var (
+	version, commit, date string
+)
+
+//go:linkname goarm runtime.goarm
+var goarm uint8
+
 func main() {
-	cmd.Version, cmd.Commit, cmd.Date = version, commit, date
+	cmd.Version = common.Version{
+		Version: version,
+		Commit:  commit,
+		OS:      runtime.GOOS,
+		Arch:    runtime.GOARCH,
+		Arm:     goarm,
+	}
+	if date != "" {
+		cmd.Version.BuildDate, _ = time.Parse(time.RFC3339, date)
+	}
 	cmd.Execute()
 }

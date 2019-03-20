@@ -17,6 +17,7 @@ type Ap struct {
 	ServerAddr string
 	ApName     string
 	KeyFile    string
+	Version    *common.Version
 	Services   map[string]*Service
 
 	client *gossh.Client
@@ -74,6 +75,10 @@ func (c *Ap) run() {
 		return
 	}
 	log.Println("#"+c.ID+" connected to server", c.ServerAddr)
+
+	if c.Version != nil {
+		c.client.SendRequest("ap-version", false, []byte(c.Version.ToString()))
+	}
 
 	go func() {
 		if err := c.client.Wait(); err != nil && err != io.EOF {

@@ -15,10 +15,10 @@
 package cmd
 
 import (
-	"fmt"
-	"runtime"
+	"os"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v2"
 )
 
 // versionCmd represents the version command
@@ -27,11 +27,7 @@ var versionCmd = &cobra.Command{
 	Short: "Show version",
 
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Version: " + Version)
-		fmt.Println("Commit: " + Commit)
-		fmt.Println("Build Date: " + Date)
-		fmt.Println("OS: " + runtime.GOOS)
-		fmt.Println("Arch: " + runtime.GOARCH)
+		yaml.NewEncoder(os.Stdout).Encode(&Version)
 	},
 }
 
