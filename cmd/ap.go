@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	defaultlogger "github.com/moisespsena/go-default-logger"
+	"github.com/moisespsena/go-default-logger"
 	"github.com/robfig/cron"
 
 	"github.com/moisespsena-go/xssh/updater"
@@ -171,8 +171,10 @@ With connection count:
 				return fmt.Errorf("bad `server-addr` flag value: %v", err)
 			} else {
 				host = h
-				if port, err = strconv.Atoi(p); err != nil {
+				if p, err := strconv.Atoi(p); err != nil {
 					return fmt.Errorf("bad `server-addr` flag PORT value: %v", err)
+				} else if p != 2220 {
+					port = p
 				}
 			}
 		}
@@ -196,6 +198,8 @@ With connection count:
 		}
 
 		serverAddr = net.JoinHostPort(host, strconv.Itoa(port))
+
+		println(serverAddr)
 
 		var d time.Duration
 		if d, err = time.ParseDuration(reconnectTimeout); err != nil {
