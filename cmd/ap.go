@@ -199,8 +199,6 @@ With connection count:
 
 		serverAddr = net.JoinHostPort(host, strconv.Itoa(port))
 
-		println(serverAddr)
-
 		var d time.Duration
 		if d, err = time.ParseDuration(reconnectTimeout); err != nil {
 			return fmt.Errorf("bad reconnect-timeout value: %v", err)
@@ -322,7 +320,7 @@ With connection count:
 func init() {
 	rootCmd.AddCommand(apCmd)
 
-	apCmd.Flags().StringP("update-interval", "U", "@every 3s", "Update check interval. This is a cron Spec.")
+	apCmd.Flags().StringP("update-interval", "U", "@daily", "Update check interval. This is a cron Spec.")
 	apCmd.Flags().IntP("port", "p", 2220, "XSSH server port.")
 	apCmd.Flags().StringP("host", "H", "localhost", "SERVER_HOST: The XSSH server host.")
 	apCmd.Flags().IntP("connections-count", "C", 1, "Number of connections. Minimum is `1`.")
