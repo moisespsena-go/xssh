@@ -80,6 +80,10 @@ func (c *Ap) run() {
 		c.client.SendRequest("ap-version", false, []byte(c.Version.ToString()))
 	}
 
+	defer func() {
+		c.registered = map[string]*ServiceListener{}
+	}()
+
 	go func() {
 		if err := c.client.Wait(); err != nil && err != io.EOF {
 			log.Println("#"+c.ID+" client closed with error: ", err)
@@ -96,21 +100,29 @@ func (c *Ap) run() {
 					continue
 				}
 
-				log.Println("#" + c.ID + " {" + name + "} remote listen")
-				ln, err := c.client.Listen("unix", sl.Name)
-				if err != nil {
-					log.Println("#"+c.ID+" {"+name+"} remote listen failed:", err)
-					continue
-				}
-				ssl := sl.Register(c.ID, ln)
-				ssl.OnClose(func() {
-					if c.registered != nil {
-						if _, ok := c.registered[name]; ok {
-							delete(c.registered, name)
-						}
+				do := func(sl *Service) (*ServiceListener, bool) {
+					log.Println("#" + c.ID + " {" + name + "} remote listen")
+					ln, err := c.client.Listen("unix", sl.Name)
+					if err != nil {
+						log.Println("#"+c.ID+" {"+name+"} remote listen failed:", err)
+						return nil, false
 					}
-				})
-				c.registered[name] = ssl
+					ssl := sl.Register(c.ID, ln)
+					ssl.OnClose(func() {
+						if c.registered != nil {
+							if _, ok := c.registered[name]; ok {
+								delete(c.registered, name)
+							}
+						}
+					})
+					return ssl, true
+				}
+
+				if ssl, ok := do(sl); ok {
+					c.registered[name] = ssl
+				} else {
+					return
+				}
 			}
 			c.registerDelayer.Wait()
 		}

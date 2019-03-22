@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -217,11 +218,13 @@ With connection count:
 		var servicesConfig []ap.ServiceConfig
 
 		if enableSSH {
-			services["ssh"] = ap.SSHServer(keyFile)
+			var closer io.Closer
+			services["ssh"], closer = ap.SSHServer(keyFile)
 			servicesConfig = append(servicesConfig, ap.ServiceConfig{
 				Name:             "ssh",
 				ConnectionsCount: 1,
 			})
+			defer closer.Close()
 		}
 
 		for i, dsn := range args {

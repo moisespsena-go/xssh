@@ -4,22 +4,48 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/opencontainers/go-digest"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
-
-	"github.com/opencontainers/go-digest"
+	"strings"
+	"sync"
 )
 
 type Copier struct {
-	name string
-	w    io.Writer
-	r    io.Reader
+	name    string
+	w       io.Writer
+	r       io.Reader
+	closers []func() error
+	closed  bool
+	mu      sync.Mutex
 }
 
-func NewCopier(name string, w io.Writer, r io.Reader) *Copier {
-	return &Copier{name: name, w: w, r: r}
+func NewCopier(name string, w io.Writer, r io.Reader, closers ...func() error) *Copier {
+	if len(closers) == 0 {
+		if c, ok := w.(io.Closer); ok {
+			closers = append(closers, c.Close)
+		}
+		if c, ok := r.(io.Closer); ok {
+			closers = append(closers, c.Close)
+		}
+	}
+	return &Copier{name: name, w: w, r: r, closers: closers}
+}
+
+func (cp *Copier) Close() error {
+	cp.mu.Lock()
+	if cp.closed {
+		return nil
+	}
+	cp.closed = true
+	cp.mu.Unlock()
+
+	for _, c := range cp.closers {
+		c()
+	}
+	return nil
 }
 
 func (cp Copier) String() string {
@@ -27,8 +53,12 @@ func (cp Copier) String() string {
 }
 
 func (cp Copier) Copy() error {
+	defer cp.Close()
 	_, err := io.Copy(cp.w, cp.r)
-	if err != nil && err != io.EOF {
+	if err != nil {
+		if err == io.EOF || strings.Contains(err.Error(), "closed network connection") {
+			return io.EOF
+		}
 		log.Println("io.Copy ["+cp.name+"] error:", err)
 		return err
 	}
@@ -77,4 +107,39 @@ func Digest(pth string) (v string, err error) {
 
 	v = d.String()
 	return
+}
+
+type IOSync struct {
+	copiers []*Copier
+	closed  bool
+	mu      sync.Mutex
+}
+
+func NewIOSync(copiers ...*Copier) (s *IOSync) {
+	s = &IOSync{copiers: copiers}
+	for _, c := range copiers {
+		c.closers = append(c.closers, s.close)
+	}
+	return s
+}
+
+func (s *IOSync) Sync() {
+	defer s.close()
+	for _, c := range s.copiers[1:] {
+		go c.Copy()
+	}
+	s.copiers[0].Copy()
+}
+
+func (s *IOSync) close() error {
+	s.mu.Lock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	s.mu.Unlock()
+	for _, c := range s.copiers {
+		c.Close()
+	}
+	return nil
 }

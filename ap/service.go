@@ -6,6 +6,8 @@ import (
 	"log"
 	"net"
 	"sync"
+
+	"github.com/moisespsena-go/xssh/common"
 )
 
 type ServiceListener struct {
@@ -74,7 +76,8 @@ func (s *Service) Close() error {
 }
 
 func (s *Service) proxy(sl *ServiceListener, remoteConn net.Conn) {
-	prfx := remoteConn.RemoteAddr().String()
+	defer remoteConn.Close()
+	prfx := "[" + sl.ID + "] " + "<> " + remoteConn.RemoteAddr().String()
 	log.Println(prfx, "connected")
 	defer func() {
 		log.Println(prfx, "closed")
@@ -84,8 +87,10 @@ func (s *Service) proxy(sl *ServiceListener, remoteConn net.Conn) {
 		log.Println(prfx, "net.Dial to", s.Addr, "failed:", err)
 		return
 	} else {
-		go io.Copy(conn, remoteConn)
-		io.Copy(remoteConn, conn)
+		common.NewIOSync(
+			common.NewCopier(prfx+" <", conn, remoteConn),
+			common.NewCopier(prfx+" >", remoteConn, conn),
+		).Sync()
 	}
 }
 

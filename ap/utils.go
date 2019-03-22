@@ -56,10 +56,13 @@ func ParseServiceDSN(dsn string) (cfg ServiceConfig, err error) {
 	cfg.Name = name
 	if strings.HasPrefix(addr, "unix:") {
 		cfg.SocketPath = strings.TrimPrefix(addr, "unix:")
-	} else if _, _, err = net.SplitHostPort(addr); err != nil {
-		return
+	} else if host, port, err := net.SplitHostPort(addr); err != nil {
+		return cfg, err
 	} else {
-		cfg.NetAddr = addr
+		if host == "lo" {
+			host = "localhost"
+		}
+		cfg.NetAddr = net.JoinHostPort(host, port)
 	}
 
 	if len(parts) == 3 {
