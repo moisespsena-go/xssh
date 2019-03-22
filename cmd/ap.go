@@ -273,7 +273,7 @@ With connection count:
 			return task.NewTask(func() (err error) {
 				for i := 1; i <= maxCc; i++ {
 					Ap := ap.New(user)
-					if i == i {
+					if i == 1 {
 						Ap.Version = &Version
 					}
 					Ap.ID = fmt.Sprintf("C%02d", i)
