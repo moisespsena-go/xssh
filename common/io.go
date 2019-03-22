@@ -35,6 +35,9 @@ func NewCopier(name string, w io.Writer, r io.Reader, closers ...func() error) *
 }
 
 func (cp *Copier) Close() error {
+	if cp.closed {
+		return nil
+	}
 	cp.mu.Lock()
 	if cp.closed {
 		return nil
@@ -132,6 +135,9 @@ func (s *IOSync) Sync() {
 }
 
 func (s *IOSync) close() error {
+	if s.closed {
+		return nil
+	}
 	s.mu.Lock()
 	if s.closed {
 		return nil
