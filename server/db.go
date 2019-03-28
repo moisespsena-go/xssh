@@ -2,6 +2,8 @@ package server
 
 import (
 	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
 	"log"
 )
 
@@ -14,7 +16,7 @@ func NewDB(dbName string) *DB {
 	return &DB{DbName: dbName}
 }
 
-func (s *DB) Init() {
+func (s *DB) Init() *DB {
 	db, err := sql.Open("sqlite3", s.DbName)
 	if err != nil {
 		log.Fatal(err)
@@ -38,9 +40,14 @@ create table if not exists load_balancers (
 	ap VARCHAR(50) NOT NULL, 
 	service VARCHAR(50) NOT NULL, 
 	max_count INT NOT NULL DEFAULT 2, 
-	public_addr VARCHAR(255), 
+	public_addr VARCHAR(255),
+	http_host VARCHAR(255),
+	http_path VARCHAR(255) NOT NULL DEFAULT '',
+	http_auth_enabled BOOL NOT NULL DEFAULT false,
+	http_users TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (ap, service), 
-	UNIQUE (public_addr)
+	UNIQUE (public_addr),
+	UNIQUE (http_host, http_path)
 );
 `
 	_, err = db.Exec(sqlStmt)
@@ -48,6 +55,7 @@ create table if not exists load_balancers (
 		log.Fatalf("%q: %s\n", err, sqlStmt)
 	}
 	s.DB = db
+	return s
 }
 
 func (s *DB) Close() error {
@@ -55,4 +63,47 @@ func (s *DB) Close() error {
 		return s.DB.Close()
 	}
 	return nil
+}
+
+type HttpUsers struct {
+	Users map[string]string
+}
+
+func (a *HttpUsers) Value() (v driver.Value, err error) {
+	if a.Users == nil || len(a.Users) == 0 {
+		return "", nil
+	}
+	var data []byte
+	if data, err = json.MarshalIndent(a.Users, "", "  "); err != nil {
+		return
+	}
+	v = data
+	return
+}
+
+func (a *HttpUsers) Scan(src interface{}) (err error) {
+	a.Users = map[string]string{}
+	if src != nil {
+		switch t := src.(type) {
+		case []byte:
+			if t != nil && len(t) > 0 {
+				return json.Unmarshal(t, &a.Users)
+			}
+		case string:
+			if t != "" {
+				return json.Unmarshal([]byte(t), &a.Users)
+			}
+		}
+	}
+	return nil
+}
+
+func (a *HttpUsers) Match(user, password string) bool {
+	if a.Users == nil {
+		return false
+	}
+	if pwd, ok := a.Users[user]; !ok || password != pwd {
+		return false
+	}
+	return true
 }

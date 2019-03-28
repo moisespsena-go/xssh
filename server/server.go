@@ -1,25 +1,25 @@
 package server
 
 import (
-	"fmt"
-	"io"
+	"context"
 	"log"
 	"net"
 	"os"
-	"path/filepath"
-	"strings"
+	"time"
+
+	"github.com/go-errors/errors"
+	"github.com/moisespsena-go/httpu"
+	"github.com/moisespsena-go/task"
 
 	"github.com/moisespsena-go/xssh/server/updater"
 
-	"github.com/moisespsena-go/xssh/common"
-
 	"github.com/gliderlabs/ssh"
-	gossh "golang.org/x/crypto/ssh"
 )
 
 type Server struct {
 	KeyFile        string
 	Addr           string
+	HttpConfig     *httpu.Config
 	SocketsDir     string
 	NodeSockerPerm os.FileMode
 	Updater        updater.Updater
@@ -27,182 +27,73 @@ type Server struct {
 	Users         *Users
 	LoadBalancers *LoadBalancers
 	register      *DefaultReversePortForwardingRegister
+	HttpHosts     *HttpHosts
+
+	srv        *ssh.Server
+	ln         net.Listener
+	running    bool
+	httpServer *httpu.Server
 }
 
-func (srv *Server) Serve() {
+func (srv *Server) Setup(appender task.Appender) (err error) {
+	if srv.HttpHosts == nil {
+		srv.HttpHosts = &HttpHosts{}
+	}
+
 	srv.register = &DefaultReversePortForwardingRegister{
 		Nodes: &Nodes{
-			Dir:      filepath.Join(srv.SocketsDir, "lb_nodes"),
+			Dir:      srv.SocketsDir,
 			SockPerm: srv.NodeSockerPerm,
 		},
+		HttpHosts: srv.HttpHosts,
 	}
 
-	var (
-		ssrv     *ssh.Server
-		register = srv.register
-	)
-
-	ln, err := net.Listen("tcp", srv.Addr)
-	if err != nil {
-		log.Fatalf("Listen: %v", err)
+	if err := os.RemoveAll(srv.SocketsDir); err != nil {
+		if !os.IsNotExist(err) {
+			return errors.New("remove `" + srv.SocketsDir + "` failed: " + err.Error())
+		}
 	}
 
-	log.Printf("starting ssh server on %v", ln.Addr())
-
-	ssrv = &ssh.Server{
-		Handler: func(s ssh.Session, request *gossh.Request) {
-			var (
-				uc   = updater.NewUpdaterClient(s, "AP "+s.User())
-				args = s.Command()
-			)
-
-			if len(args) == 0 {
-				s.Stderr().Write([]byte(`invalid args`))
-				return
-			}
-
-			switch args[0] {
-			case "update":
-				if srv.Updater == nil {
-					var r common.UpgradePayload
-					r.Ok = true
-					if err = r.Write(s); err != nil {
-						if err != io.EOF {
-							log.Println("Write upgrade payload failed: %v", err)
-						}
-					}
-				} else {
-					var v common.Version
-					if err = v.FRead(s); err != nil {
-						uc.Err(err.Error())
-						return
-					}
-
-					var apUV common.ApUpgradePayload
-					apUV.Ap = s.User()
-					apUV.ApAddr = s.RemoteAddr().String()
-					apUV.Version = v
-
-					if err := srv.Updater.Execute(uc, apUV); err != nil {
-						var r common.UpgradePayload
-						if err = r.ErrorF(s, err.Error()); err != nil {
-							if err != io.EOF {
-								log.Println("Write upgrade payload failed: %v", err)
-							}
-						}
-					}
-				}
-			default:
-				s.Stderr().Write([]byte("invalid command"))
-			}
-		},
-		ReversePortForwardingRegister: register,
-		ReversePortForwardingCallback: func(ctx ssh.Context, addr string) bool {
-			return strings.HasPrefix(addr, "unix") && ctx.Value("is:ap").(bool)
-		},
-		ReversePortForwardingListenerCallback: func(ctx ssh.Context, addr string) (listener net.Listener, err error) {
-			name := strings.TrimPrefix(addr, "unix:")
-			ap := ctx.User()
-			if name[0] == '*' {
-				serviceName := name[1:]
-				var b *LoadBalancer
-				if b, err = srv.LoadBalancers.Get(ap, serviceName); err != nil {
-					err = fmt.Errorf("LoadBalancers.Get(%q, %q) failed: %v", ap, serviceName)
-					return
-				} else if b == nil {
-					return nil, fmt.Errorf("Load Balance of AP %q and service %q not registered", ap, serviceName)
-				}
-				ctx.SetValue("load_balancer:"+serviceName, b)
-				listener, err = net.Listen("tcp", "localhost:0")
-			} else {
-				listener, err = net.Listen("tcp", "localhost:0")
-			}
-			if err == nil {
-				log.Printf("[AP %s] {%s} listening on %v", ctx.User(), name, listener.Addr())
-			}
-			return
-		},
-		LocalPortForwardingCallback: func(ctx ssh.Context, addr string) bool {
-			return !ctx.Value("is:ap").(bool)
-		},
-		LocalPortForwardingResolverCallback: func(ctx ssh.Context, addr string) (destAddr string, err error) {
-			apName := ctx.Value("ap:name").(string)
-			serviceName := strings.TrimPrefix(addr, "unix:")
-			var ln *ServiceListener
-			if ln, err = register.GetListener(apName, serviceName); err != nil {
-				return
-			}
-			if ln.node == nil {
-				ctx.Value(ssh.ContextKeyCloseListener).(ssh.CloseListener).CloseCallback(ln.Release)
-				log.Println("[CL " + ctx.User() + "] -> {" + serviceName + "}")
-				return ln.Addr().String(), nil
-			}
-
-			log.Println("[CL " + ctx.User() + "] -> " + ln.node.String())
-			return "unix:" + ln.node.SocketPath, nil
-		},
-		ConnCallback: func(conn net.Conn) net.Conn {
-			var i interface{} = conn
-			i.(ssh.CloseListener).CloseCallback(func() {
-				log.Println("connection", conn.RemoteAddr(), "closed")
-			})
-			log.Println("new connection", conn.RemoteAddr())
-			return conn
-		},
+	if srv.ln, err = net.Listen("tcp", srv.Addr); err != nil {
+		return
+	} else {
+		log.Printf("starting ssh server on %v", srv.ln.Addr())
 	}
-	ssrv.RequestHandler("", ssh.RequestHandlerFunc(func(ctx ssh.Context, srv *ssh.Server, req *gossh.Request) (ok bool, payload []byte) {
-		return true, nil
-	}))
-	ssrv.RequestHandler("ap-version", ssh.RequestHandlerFunc(func(ctx ssh.Context, srv *ssh.Server, req *gossh.Request) (ok bool, payload []byte) {
-		var v common.Version
-		log.Println("[AP " + ctx.User() + "] version=" + fmt.Sprint(*v.Unmarshal(req.Payload)))
-		return true, nil
-	}))
-	ssrv.RequestHandler("cl-version", ssh.RequestHandlerFunc(func(ctx ssh.Context, srv *ssh.Server, req *gossh.Request) (ok bool, payload []byte) {
-		var v common.Version
-		log.Println("[CL " + ctx.User() + "] version=" + fmt.Sprint(*v.Unmarshal(req.Payload)))
-		return true, nil
-	}))
-	_ = ssrv.SetOption(ssh.HostKeyFile(common.GetKeyFile(srv.KeyFile)))
-	_ = ssrv.SetOption(ssh.PublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool {
-		user := ctx.User()
-		parts := strings.Split(user, ":")
-		var (
-			proxy  bool
-			apName string
-		)
 
-		if len(parts) >= 2 {
-			user = parts[0]
-			if parts[1] == "" {
-				log.Printf("Ap name of user %q is blank\n", user)
-				return false
-			}
-			apName = parts[1]
-			ctx.SetValue("ap:name", apName)
-			if len(parts) == 3 {
-				if parts[2] == "" {
-					parts[2] = parts[0]
-				}
+	if srv.HttpConfig != nil {
+		srv.httpServer = httpu.NewServer(srv.HttpConfig, srv)
+		appender.AddTask(srv.httpServer)
+	}
 
-				ctx.SetValue("proxy:user", parts[2])
-				proxy = true
-			}
-		}
-		if user == "" {
-			log.Printf("User is blank\n")
-			return false
-		}
-		err, ok, isAp := srv.Users.CheckUser(user, string(gossh.MarshalAuthorizedKey(key)))
-		if err != nil {
-			log.Println("ERROR:", err)
-			return false
-		}
-		if ok {
-			ctx.SetValue("is:ap", isAp)
-			ctx.SetValue("is:proxy", proxy)
-		}
-		return ok
-	}))
-	log.Fatal(ssrv.Serve(ln))
+	srv.setupSshServer()
+	return nil
+}
+
+func (srv *Server) Run() error {
+	srv.running = true
+	defer func() {
+		srv.running = false
+		srv.ln.Close()
+	}()
+	return srv.srv.Serve(srv.ln)
+}
+
+func (srv *Server) Start(done func()) (stop task.Stoper, err error) {
+	go func() {
+		defer done()
+		srv.Run()
+	}()
+	return srv, nil
+}
+
+func (srv *Server) Stop() {
+	ctx, _ := context.WithTimeout(context.Background(), 3*time.Second)
+	if srv.httpServer != nil {
+		go srv.httpServer.Shutdown(ctx)
+	}
+	go srv.srv.Shutdown(ctx)
+}
+
+func (srv *Server) IsRunning() bool {
+	return srv.running
 }

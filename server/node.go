@@ -26,11 +26,16 @@ func (n Node) CloseEndPont(addr string) {
 }
 
 func (n Node) proxy(conn net.Conn) {
-	defer conn.Close()
+	prfx := n.String()
+	defer func() {
+		conn.Close()
+		log.Println(prfx, "closed")
+	}()
+	log.Println(prfx, "connected")
 
 	n.mu.Lock()
 	if len(n.EndPoints) == 0 {
-		log.Println(n.String(), "no have endpoints")
+		log.Println(prfx, "no have endpoints")
 		return
 	}
 
@@ -66,12 +71,22 @@ func (n Node) proxy(conn net.Conn) {
 	rCon, err = minSL.Dial()
 
 	if err != nil {
-		log.Println(n.String(), "dial to", minSL.Name, "failed:", err.Error())
+		log.Println(prfx, "dial to", minSL.Name, "failed:", err.Error())
 		return
 	}
+
+	rprfx := prfx + " " + minSL.Name + "@" + "{" + addrs + "}"
+
+	defer func() {
+		rCon.Close()
+		log.Println(rprfx, "closed")
+	}()
+
 	log.Println(n.String(), "EP{"+addrs+"}: connected from", conn.RemoteAddr().String())
-	go common.NewCopier(n.String()+" > "+addrs, conn, rCon).Copy()
-	common.NewCopier(n.String()+" < "+addrs, rCon, conn).Copy()
+	common.NewIOSync(
+		common.NewCopier(rprfx+" <", conn, rCon),
+		common.NewCopier(rprfx+" >", rCon, conn),
+	).Sync()
 }
 
 func (n Node) String() string {

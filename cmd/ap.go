@@ -29,8 +29,8 @@ import (
 
 	"github.com/moisespsena-go/xssh/updater"
 
+	"github.com/moisespsena-go/overseer-task-restarts"
 	"github.com/moisespsena-go/task"
-	"github.com/moisespsena-go/task/restarts"
 
 	"github.com/moisespsena-go/xssh/ap"
 	"github.com/moisespsena-go/xssh/common"

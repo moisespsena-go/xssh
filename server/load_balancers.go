@@ -9,6 +9,8 @@ import (
 type LoadBalancer struct {
 	Ap, Service string
 	PublicAddr  *string
+	HttpHost    *string
+	HttpPath    string
 	MaxCount    int
 
 	*Nodes
@@ -141,15 +143,15 @@ func (s *LoadBalancers) List(cb func(i int, lb *LoadBalancer) error, filter *Loa
 		}
 	}
 
-	rows, err := s.DB.Query("SELECT ap, service, max_count, public_addr FROM load_balancers WHERE "+
+	rows, err := s.DB.Query("SELECT ap, service, max_count, public_addr, http_host, http_path FROM load_balancers WHERE "+
 		strings.Join(where, " AND ")+" ORDER BY ap, service ASC", args...)
 	if err != nil {
-		return fmt.Errorf("DB Prepare failed: %v", err)
+		return fmt.Errorf("DB Query failed: %v", err)
 	}
 
 	for i := 1; rows.Next(); i++ {
 		var lb LoadBalancer
-		if err = rows.Scan(&lb.Ap, &lb.Service, &lb.MaxCount, &lb.PublicAddr); err != nil {
+		if err = rows.Scan(&lb.Ap, &lb.Service, &lb.MaxCount, &lb.PublicAddr, &lb.HttpHost, &lb.HttpPath); err != nil {
 			return fmt.Errorf("Scan Load Balancer %d failed: %v", i, err)
 		}
 		if err = cb(i, &lb); err != nil {
@@ -168,5 +170,27 @@ func (s *LoadBalancers) Get(ap, service string) (balancer *LoadBalancer, err err
 		balancer = lb
 		return nil
 	}, &LoadBalancerFilter{Ap: ap, Services: []string{service}})
+	return
+}
+
+func (s *LoadBalancers) GetUsers(ap, service string) (users *HttpUsers, err error) {
+	rows, err := s.DB.Query("SELECT http_auth_enabled, http_users FROM load_balancers WHERE ap = ? AND service = ?", ap, service)
+	if err != nil {
+		return nil, fmt.Errorf("DB Query failed: %v", err)
+	}
+
+	if rows.Next() {
+		var (
+			enabled   bool
+			authUsers HttpUsers
+		)
+		if err = rows.Scan(&enabled, &authUsers); err != nil {
+			return nil, fmt.Errorf("Scan auth failed: %v", err)
+		}
+		if !enabled {
+			return
+		}
+		users = &authUsers
+	}
 	return
 }

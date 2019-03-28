@@ -4,13 +4,14 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/opencontainers/go-digest"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/opencontainers/go-digest"
 )
 
 type Copier struct {
@@ -68,26 +69,51 @@ func (cp Copier) Copy() error {
 	return nil
 }
 
-func RemoveEmptyDir(pth string, count int) (err error) {
-	for i := 0; i < count; i++ {
+func RemoveEmptyDir(rootDir, pth string) (err error) {
+	if rootDir == "" || rootDir == "." {
+		if rootDir, err = os.Getwd(); err != nil {
+			return
+		}
+	} else if rootDir, err = filepath.Abs(rootDir); err != nil {
+		return
+	}
+
+	if pth, err = filepath.Abs(pth); err != nil {
+		return errors.New("abs path of `" + pth + "` from `" + rootDir + "` failed: " + err.Error())
+	}
+
+	if !strings.HasPrefix(pth, rootDir) {
+		return errors.New("invalid sub path `" + pth + "`")
+	}
+
+	for pth != rootDir {
 		var f *os.File
 		if f, err = os.Open(pth); err != nil {
 			return errors.New("open dir `" + pth + "` failed: " + err.Error())
 		}
-		var list []string
-		list, err = f.Readdirnames(1)
+		var s os.FileInfo
+		if s, err = f.Stat(); err != nil {
+			f.Close()
+			return errors.New("stat of `" + pth + "` failed: " + err.Error())
+		}
+		if !s.IsDir() {
+			f.Close()
+			return errors.New("`" + pth + "` not is dir")
+		}
+		_, err = f.Readdirnames(1)
 		f.Close()
 		if err != nil {
 			if err == io.EOF {
-				err = nil
+				if err = os.Remove(pth); err != nil {
+					return
+				}
+				pth = filepath.Dir(pth)
 			} else {
 				return errors.New("readdirnames `" + pth + "` failed: " + err.Error())
 			}
-		}
-		if len(list) != 0 {
+		} else {
 			return
 		}
-		pth = filepath.Dir(pth)
 	}
 	return
 }

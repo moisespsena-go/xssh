@@ -4,3 +4,4 @@
 xssh*
 dist
 vendor/
+sockets/

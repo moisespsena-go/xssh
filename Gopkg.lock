@@ -53,6 +53,14 @@
   version = "v1.17.13"
 
 [[projects]]
+  branch = "master"
+  digest = "1:50cf302cc52eb618cec25d4daf167ed5593145d43b447b906a9f0d24e271d48b"
+  name = "github.com/felixge/tcpkeepalive"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "5bb0b2dea91e0de550022159b9571aafc72c08ba"
+
+[[projects]]
   digest = "1:abeb38ade3f32a92943e5be54f55ed6d6e3b6602761d74b4aab4c9dd45c18abd"
   name = "github.com/fsnotify/fsnotify"
   packages = ["."]
@@ -62,11 +70,11 @@
 
 [[projects]]
   branch = "temp"
-  digest = "1:b6db7fba33ad8ad8189de42f02b102a1406585b0b2a99c2cb7a1cfcbe63fb3ef"
+  digest = "1:a023a603687444ceb85a12d5162f2964d9cc591ddd222b9a03a9dcdfa6b6183c"
   name = "github.com/gliderlabs/ssh"
   packages = ["."]
   pruneopts = "UT"
-  revision = "342a26e36f94a3d437309b46aaee353897ff26f8"
+  revision = "50e0dbade11ec10a43508f3252a01d42a5969c22"
   source = "github.com/moisespsena-go/ssh"
 
 [[projects]]
@@ -113,14 +121,14 @@
 
 [[projects]]
   branch = "crontab"
-  digest = "1:a41e830b5b9062409d27e5047f29ba40f6310fe073dcf8c9cb8256bd450c4a0e"
+  digest = "1:8fed4897db266eca7c4a5d684055728d04b84965e9a568d5de63299e2b86dd1f"
   name = "github.com/jpillora/overseer"
   packages = [
     ".",
     "fetcher",
   ]
   pruneopts = "UT"
-  revision = "2ff67758aa6aeff77c259651c3cf553ae2c6a5de"
+  revision = "3ad03f14f3370efefe389cc16c73bad47c378caa"
   source = "github.com/moisespsena-go/overseer"
 
 [[projects]]
@@ -173,14 +181,35 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:3151e985480a33f25525d1345e68d2a488c2fa80fb46358bd16cfa38aac103ee"
-  name = "github.com/moisespsena-go/task"
-  packages = [
-    ".",
-    "restarts",
-  ]
+  digest = "1:c6d11967bbc7f2918846dfeb1dfe22eb343abe9a18fb9c240dd9bc4d9e1fad7e"
+  name = "github.com/moisespsena-go/httpu"
+  packages = ["."]
   pruneopts = "UT"
-  revision = "40907444d35260b0ec04f1850edba9d5355688c9"
+  revision = "f0ea566210409b4de5c21bae447b02ec960a60be"
+
+[[projects]]
+  branch = "master"
+  digest = "1:6fe45501f220bfa1957ccb27e3445ed82639c58fce94424098ed1ea83265d3be"
+  name = "github.com/moisespsena-go/overseer-task-restarts"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "aabe09800d38eff560ed8e43d3fa06045b8602e1"
+
+[[projects]]
+  branch = "master"
+  digest = "1:df263dc103bcfb822a91d20dfc7712af00f0710f29442515ce3f769fe5433e9c"
+  name = "github.com/moisespsena-go/path-helpers"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "10fc831782671524d4634ff4005c7e63d31b0139"
+
+[[projects]]
+  branch = "master"
+  digest = "1:89cc543292f2af3d1e7939a5ef626dfd58f8aca5a424e8a0eab185045dee09b0"
+  name = "github.com/moisespsena-go/task"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "b4135892859b107426650959e710c5b093696e6b"
 
 [[projects]]
   branch = "master"
@@ -200,11 +229,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:3ddf39b30444b8f403563986963b3b46d0b3ba251361e8319f6dae86696140d2"
+  digest = "1:a896606315150ecd3dda1133b5d03ed160238b47124756b454d976c52c93edfd"
   name = "github.com/moisespsena/go-path-helpers"
   packages = ["."]
   pruneopts = "UT"
-  revision = "bbd7194afdcdffd0f9671cdb2a191a506094a19a"
+  revision = "3ad81822a6b06606aff4b3349f928a192423342d"
 
 [[projects]]
   digest = "1:5b3b29ce0e569f62935d9541dff2e16cc09df981ebde48e82259076a73a3d0c7"
@@ -315,6 +344,19 @@
 
 [[projects]]
   branch = "master"
+  digest = "1:a7e7d4a2763c58f27ccd9c712d073b3972ee8ba2780e652a8e918c7ef43149bf"
+  name = "golang.org/x/net"
+  packages = [
+    "http/httpguts",
+    "http2",
+    "http2/hpack",
+    "idna",
+  ]
+  pruneopts = "UT"
+  revision = "15845e8f865bdabdefb6e7da65b4d9e8de5e94ef"
+
+[[projects]]
+  branch = "master"
   digest = "1:9d1657fbbef403ab54f7eb39278a787f35536ef37f7c2a0775f49ea3356d5076"
   name = "golang.org/x/sys"
   packages = [
@@ -325,15 +367,23 @@
   revision = "a34e9553db1e492c9a76e60db2296ae7e5fbb772"
 
 [[projects]]
-  digest = "1:8029e9743749d4be5bc9f7d42ea1659471767860f0cdc34d37c3111bd308a295"
+  digest = "1:a2ab62866c75542dd18d2b069fec854577a20211d7c0ea6ae746072a1dccdd18"
   name = "golang.org/x/text"
   packages = [
+    "collate",
+    "collate/build",
+    "internal/colltab",
     "internal/gen",
+    "internal/tag",
     "internal/triegen",
     "internal/ucd",
+    "language",
+    "secure/bidirule",
     "transform",
+    "unicode/bidi",
     "unicode/cldr",
     "unicode/norm",
+    "unicode/rangetable",
   ]
   pruneopts = "UT"
   revision = "f21a4dfb5e38f5895301dc265a8def02365cc3d0"
@@ -351,13 +401,17 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/anmitsu/go-shlex",
+    "github.com/felixge/tcpkeepalive",
     "github.com/gliderlabs/ssh",
     "github.com/go-errors/errors",
+    "github.com/jpillora/overseer/fetcher",
     "github.com/kr/pty",
     "github.com/mattn/go-sqlite3",
     "github.com/mitchellh/go-homedir",
+    "github.com/moisespsena-go/httpu",
+    "github.com/moisespsena-go/overseer-task-restarts",
     "github.com/moisespsena-go/task",
-    "github.com/moisespsena-go/task/restarts",
     "github.com/moisespsena/go-default-logger",
     "github.com/moisespsena/go-path-helpers",
     "github.com/opencontainers/go-digest",
@@ -365,6 +419,7 @@
     "github.com/spf13/cobra",
     "github.com/spf13/viper",
     "golang.org/x/crypto/ssh",
+    "golang.org/x/net/http2",
     "gopkg.in/yaml.v2",
   ]
   solver-name = "gps-cdcl"

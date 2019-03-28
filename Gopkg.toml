@@ -56,5 +56,22 @@ required = ["github.com/opencontainers/go-digest"]
   name = "github.com/moisespsena-go/task"
 
 [[constraint]]
+  branch = "master"
+  name = "github.com/moisespsena-go/overseer-task-restarts"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/moisespsena-go/httpu"
+
+[[constraint]]
   name = "github.com/opencontainers/go-digest"
   version = "1.0.0-rc1"
+
+[[constraint]]
+  branch = "crontab"
+  name = "github.com/jpillora/overseer"
+  source = "github.com/moisespsena-go/overseer"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/felixge/tcpkeepalive"

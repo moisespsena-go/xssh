@@ -16,6 +16,11 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+
+	"github.com/moisespsena-go/httpu"
+	"github.com/moisespsena-go/overseer-task-restarts"
+	"github.com/moisespsena-go/task"
 
 	"github.com/anmitsu/go-shlex"
 	"github.com/moisespsena-go/xssh/common"
@@ -29,10 +34,19 @@ var dbName = "xssh.db"
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "X-SSH The server",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) (err error) {
 		addr, _ := cmd.Flags().GetString("addr")
 		updaterCmd, _ := cmd.Flags().GetString("updater-cmd")
 		updaterAddr, _ := cmd.Flags().GetString("updater-addr")
+		httpKeepAlive, _ := cmd.Flags().GetString("http-keep-alive")
+		httpKeepAliveIdle, _ := cmd.Flags().GetString("http-keep-alive-idle")
+		httpKeepAliveCount, _ := cmd.Flags().GetInt("http-keep-alive-count")
+		httpAddr, _ := cmd.Flags().GetString("http-addr")
+		https, _ := cmd.Flags().GetBool("https")
+		httpsAddr, _ := cmd.Flags().GetString("https-addr")
+		httpsCertFile, _ := cmd.Flags().GetString("https-cert-file")
+		httpsKeyFile, _ := cmd.Flags().GetString("https-key-file")
+		httpsDisableHttp2, _ := cmd.Flags().GetBool("https-disable-http2")
 
 		if addr == "" {
 			addr = common.DefaultServerPublicAddr
@@ -50,27 +64,107 @@ var serveCmd = &cobra.Command{
 			Updater = updater.NewNetUpdater(updaterAddr)
 		}
 
-		return withDB(func(DB *server.DB) error {
-			s := server.Server{
+		if https {
+			if _, err := os.Stat(httpsKeyFile); err != nil {
+				return fmt.Errorf("`--https-key-file` flag: %v", err)
+			}
+			if _, err := os.Stat(httpsCertFile); err != nil {
+				return fmt.Errorf("`--https-cert-file` flag: %v", err)
+			}
+		}
+
+		var keepAliveConfig *httpu.KeepAliveConfig
+		if httpKeepAlive != "" {
+			keepAliveConfig = &httpu.KeepAliveConfig{Value: httpKeepAlive}
+		}
+
+		var keepAliveIdleConfig *httpu.KeepAliveConfig
+		if httpKeepAliveIdle != "" {
+			keepAliveIdleConfig = &httpu.KeepAliveConfig{Value: httpKeepAliveIdle}
+		}
+
+		var done func() error
+
+		defer func() {
+			if done != nil {
+				done()
+			}
+		}()
+
+		return restarts.New(task.FactoryFunc(func() task.Task {
+			DB := server.NewDB(dbName).Init()
+			done = DB.Close
+
+			var httpConfig *httpu.Config
+			if httpAddr != "" || (https && httpsAddr != "") {
+				httpConfig = &httpu.Config{}
+				if httpAddr != "" {
+					httpConfig.Listeners = append(httpConfig.Listeners, httpu.ListenerConfig{
+						KeepAliveInterval:     keepAliveConfig,
+						KeepAliveIdleInterval: keepAliveIdleConfig,
+						KeepAliveCount:        httpKeepAliveCount,
+						Addr:                  httpu.Addr(httpAddr),
+					})
+				}
+				if https && httpsAddr != "" {
+					httpConfig.Listeners = append(httpConfig.Listeners, httpu.ListenerConfig{
+						KeepAliveInterval:     keepAliveConfig,
+						KeepAliveIdleInterval: keepAliveIdleConfig,
+						KeepAliveCount:        httpKeepAliveCount,
+						Addr:                  httpu.Addr(httpsAddr),
+						Tls: httpu.TlsConfig{
+							CertFile:    httpsCertFile,
+							KeyFile:     httpsKeyFile,
+							NPNDisabled: httpsDisableHttp2,
+						},
+					})
+				}
+			}
+
+			return &server.Server{
 				Updater:        Updater,
 				SocketsDir:     "sockets",
 				KeyFile:        keyFile,
 				Addr:           addr,
+				HttpConfig:     httpConfig,
 				Users:          server.NewUsers(DB),
 				LoadBalancers:  server.NewLoadBalancers(DB),
 				NodeSockerPerm: 0666,
 			}
-
-			s.Serve()
-			return nil
-		})
+		})).RunWait()
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
-	serveCmd.Flags().StringP("addr", "a", common.DefaultServerPublicAddr, "Public addr (default is `"+common.DefaultServerPublicAddr+"`).")
-	serveCmd.Flags().String("updater-cmd", "", "Updater command")
-	serveCmd.Flags().String("updater-addr", "", "Updater Addr")
+	flags := serveCmd.Flags()
+	flags.StringP("addr", "a", common.DefaultServerPublicAddr, "Public addr")
+	// updater
+	flags.String("updater-cmd", "", "Updater command")
+	flags.String("updater-addr", "", "Updater Addr")
+	// http server
+	flags.String("http-addr", ":2080", "HTTP Addr")
+	flags.String("http-keep-alive", "", httpKeepAliveUsage)
+	flags.String("http-keep-alive-idle", "", httpKeepAliveIdleUsage)
+	flags.Int("http-keep-alive-count", 0, "HTTP TCP Keep Alive count")
+	// https server
+	flags.Bool("https", false, "Enable HTTPS")
+	flags.String("https-addr", ":2043", "HTTPS Addr")
+	flags.String("https-cert-file", "server.crf", "TLS cert file")
+	flags.String("https-key-file", "server.key", "TLS key file")
+	flags.Bool("https-disable-http2", false, "Disable support for HTTP/2 protocol in HTTPS connections")
+
 	serveCmd.PersistentFlags().StringVar(&dbName, "db", dbName, "SQLite 3 database file")
 }
+
+const httpKeepAliveUsage = `HTTP TCP Keep Alive duration.
+The value is a possibly signed (seconds) or signed sequence of decimal numbers,
+each with optional fraction and a unit suffix, such as 
+"10" or "10s", "1.5h" or "2h45m". Valid time units are "s" (second), 
+"m" (minute), "h" (hour).`
+
+const httpKeepAliveIdleUsage = `HTTP TCP Keep Alive IDLE timeout.
+The value is a possibly signed (seconds) or signed sequence of decimal numbers,
+each with optional fraction and a unit suffix, such as 
+"10" or "10s", "1.5h" or "2h45m". Valid time units are "s" (second), 
+"m" (minute), "h" (hour).`

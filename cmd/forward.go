@@ -17,8 +17,8 @@ package cmd
 import (
 	"os"
 
-	"github.com/moisespsena-go/task/restarts"
-	defaultlogger "github.com/moisespsena/go-default-logger"
+	"github.com/moisespsena-go/overseer-task-restarts"
+	"github.com/moisespsena/go-default-logger"
 
 	"github.com/moisespsena-go/xssh/forwarder"
 

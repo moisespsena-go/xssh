@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-errors/errors"
 
@@ -47,9 +48,10 @@ func (sl *ServiceListener) Lock() {
 }
 
 type DefaultReversePortForwardingRegister struct {
-	forwards map[string]map[string]*ClientListeners
-	mu       sync.Mutex
-	Nodes    *Nodes
+	forwards  map[string]map[string]*ClientListeners
+	mu        sync.Mutex
+	Nodes     *Nodes
+	HttpHosts *HttpHosts
 }
 
 func (r *DefaultReversePortForwardingRegister) Register(ctx ssh.Context, addr string, ln net.Listener) error {
@@ -118,6 +120,16 @@ func (r *DefaultReversePortForwardingRegister) Register(ctx ssh.Context, addr st
 		if err != nil {
 			return errors.New("AP " + apName + "at" + clientKey + ": add endpoint to node failed:" + err.Error())
 		}
+
+		if lb.HttpHost != nil && len(n.EndPoints) == 1 {
+			r.HttpHosts.Register(*lb.HttpHost).Set(lb, func() (con net.Conn, err error) {
+				return net.DialTimeout("unix", n.SocketPath, 2*time.Second)
+			})
+			n.OnClose(func() {
+				r.HttpHosts.Remove(*lb.HttpHost, lb.HttpPath)
+			})
+		}
+
 		sl.node = n
 	}
 

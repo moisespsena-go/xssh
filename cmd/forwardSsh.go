@@ -16,8 +16,8 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/moisespsena-go/overseer-task-restarts"
 	"github.com/moisespsena-go/task"
-	"github.com/moisespsena-go/task/restarts"
 	"github.com/moisespsena-go/xssh/forwarder"
 	"github.com/moisespsena/go-default-logger"
 	"net"
@@ -59,10 +59,10 @@ DSN is [USER:]AP_NAME@XSSH_SERVER_HOST
 		if t, err := c.Create(); err != nil {
 			return err
 		} else {
-			t2 := task.FactoryFunc(func() (task.Task) {
+			t2 := task.FactoryFunc(func() task.Task {
 				args := append([]string{}, os.Args[3:]...)
 				for i, l := 0, len(args); i < l; i++ {
-					switch args[i]  {
+					switch args[i] {
 					case "-p":
 						_, p, _ := net.SplitHostPort(t.GetService("ssh").Addr)
 						args[i+1] = fmt.Sprint(p)
