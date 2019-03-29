@@ -3,13 +3,13 @@ package server
 import "sync"
 
 type ClientListeners struct {
-	count int
+	count  int
 	byName map[string]*ServiceListener
 	byAddr map[string]*ServiceListener
-	mu sync.Mutex
+	mu     sync.Mutex
 }
 
-func (cl *ClientListeners) Add(ln ...*ServiceListener) {
+func (cl *ClientListeners) Add(sl ...*ServiceListener) {
 	if cl.byAddr == nil {
 		cl.byAddr = map[string]*ServiceListener{}
 	}
@@ -17,7 +17,7 @@ func (cl *ClientListeners) Add(ln ...*ServiceListener) {
 		cl.byName = map[string]*ServiceListener{}
 	}
 
-	for _, ln := range ln {
+	for _, ln := range sl {
 		cl.byAddr[ln.Addr().String()] = ln
 		cl.byName[ln.Name] = ln
 	}

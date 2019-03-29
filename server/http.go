@@ -5,21 +5,25 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"os"
 	"sort"
 	"strings"
 	"sync"
 
 	"golang.org/x/net/http2"
+	"golang.org/x/net/websocket"
 )
 
 var (
 	errUnauthorised = errors.New("unauthorised")
 )
 
-type Dialer func() (con net.Conn, err error)
+type Dialer func(ctx context.Context, remoteAddr string) (con net.Conn, err error)
 
 type LB struct {
 	*LoadBalancer
@@ -131,7 +135,79 @@ func (h *HttpHosts) Remove(host string, pth ...string) {
 	}
 }
 
+func (srv *Server) serveLocal(w http.ResponseWriter, r *http.Request) {
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if parts := strings.Split(auth, " "); len(parts) == 2 && parts[0] == "Token" && parts[1] != "" {
+		b, err := ioutil.ReadFile("xssh.token")
+		if err != nil {
+			if os.IsNotExist(err) {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			} else {
+				log.Println("read token failed:", err)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+		}
+		if strings.TrimSpace(string(b)) != parts[1] {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+	} else {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	ap, service := r.Header.Get("X-Ap"), r.Header.Get("X-Service")
+	if ap == "" {
+		http.Error(w, "AP is blank", http.StatusBadRequest)
+		return
+	}
+	if service == "" {
+		http.Error(w, "AP is blank", http.StatusBadRequest)
+		return
+	}
+
+	var clientAddr string
+
+	if parts := strings.Split(service, "/"); len(parts) == 2 {
+		service, clientAddr = parts[0], parts[1]
+	}
+
+	ln, err := srv.register.GetListener(ap, service, clientAddr)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var cl *ChanListener
+	if clientAddr == "" && ln.node != nil {
+		cl = ln.node.ChanListener
+	} else {
+		cl = ln.Listener.(*ChanListener)
+	}
+	con, _ := cl.Dial(nil, "ws:"+r.RemoteAddr+"->"+r.Host)
+
+	websocket.Handler(func(ws *websocket.Conn) {
+		defer con.Close()
+		defer ws.Close()
+		go func() {
+			defer con.Close()
+			defer ws.Close()
+			io.Copy(ws, con)
+		}()
+		io.Copy(con, ws)
+	}).ServeHTTP(w, r)
+}
+
 func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if isWebsocketRequest(r) {
+		srv.serveLocal(w, r)
+		return
+	}
 	host := strings.SplitN(r.Host, ":", 2)[0]
 	var lb *LB
 	if pths, ok := srv.HttpHosts.Get(host); ok {
@@ -160,14 +236,34 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer resp.Body.Close()
+	var close = resp.Body.Close
+
+	defer func() {
+		fmt.Println("done")
+		close()
+	}()
 
 	copyHeader(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 
-	n, err := io.Copy(w, resp.Body)
+	var n int64
+
+	if len(resp.TransferEncoding) == 1 && resp.TransferEncoding[0] == "chunked" {
+		n, err = io.Copy(
+			ioutil.Discard,
+			httputil.NewChunkedReader(
+				io.TeeReader(
+					resp.Body,
+					&flushWriter{w},
+				),
+			),
+		)
+	} else {
+		n, err = io.Copy(&flushWriter{w}, resp.Body)
+	}
+
 	prfx := fmt.Sprintf("[%s{%s}@%s]", lb.Ap, lb.Service, r.RemoteAddr)
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "EOF") {
 		log.Println(prfx, "error:", err.Error())
 	} else {
 		log.Println(prfx, "transfered", n, "bytes")
@@ -176,8 +272,11 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // RoundTrip is http.RoundTriper implementation.
 func (srv *Server) RoundTrip(lb *LB, r *http.Request) (resp *http.Response, err error) {
-	var users *HttpUsers
-	if users, err = srv.LoadBalancers.GetUsers(lb.Ap, lb.Service); err != nil {
+	var (
+		users   HttpUsers
+		enabled bool
+	)
+	if users, enabled, err = srv.LoadBalancers.GetUsers(lb.Ap, lb.Service); err != nil {
 		return
 	}
 
@@ -187,7 +286,7 @@ func (srv *Server) RoundTrip(lb *LB, r *http.Request) (resp *http.Response, err 
 	}
 	outr.Header = cloneHeader(r.Header)
 
-	if users != nil {
+	if enabled {
 		if user, password, ok := r.BasicAuth(); !ok || !users.Match(user, password) {
 			return nil, errUnauthorised
 		}
@@ -222,7 +321,7 @@ func (s *Server) proxyHTTP(lb *LB, r *http.Request) (resp *http.Response, err er
 	var t http.RoundTripper
 	if r.Proto == "HTTP/2" {
 		var con net.Conn
-		con, err = lb.Dial()
+		con, err = lb.Dial(nil, r.RemoteAddr)
 		if err != nil {
 			return
 		}
@@ -239,7 +338,7 @@ func (s *Server) proxyHTTP(lb *LB, r *http.Request) (resp *http.Response, err er
 	} else {
 		t = &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (conn net.Conn, e error) {
-				return lb.Dial()
+				return lb.Dial(ctx, r.RemoteAddr)
 			},
 		}
 	}

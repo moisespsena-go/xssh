@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/go-errors/errors"
 
@@ -22,7 +21,7 @@ const (
 
 type ServiceListener struct {
 	Name string
-	net.Listener
+	Listener
 	Client ssh.Session
 	cl     *ClientListeners
 	node   *Node
@@ -105,15 +104,16 @@ func (r *DefaultReversePortForwardingRegister) Register(ctx ssh.Context, addr st
 	if !ok {
 		r.forwards[apName][clientKey] = &ClientListeners{}
 	}
-	serviceName := strings.TrimPrefix(addr, "unix:")
+	serviceName := strings.TrimPrefix(strings.TrimPrefix(addr, "unix:"), "virtual:")
 
 	sl := &ServiceListener{
-		Listener: ln,
+		Listener: ln.(Listener),
 		Name:     serviceName,
 		cl:       r.forwards[apName][clientKey],
 	}
 
 	if serviceName[0] == '*' {
+		sl.Name = sl.Name[1:]
 		lb := ctx.Value("load_balancer:" + serviceName[1:]).(*LoadBalancer)
 		var err error
 		n, err = r.Nodes.Add(lb, sl)
@@ -122,9 +122,7 @@ func (r *DefaultReversePortForwardingRegister) Register(ctx ssh.Context, addr st
 		}
 
 		if lb.HttpHost != nil && len(n.EndPoints) == 1 {
-			r.HttpHosts.Register(*lb.HttpHost).Set(lb, func() (con net.Conn, err error) {
-				return net.DialTimeout("unix", n.SocketPath, 2*time.Second)
-			})
+			r.HttpHosts.Register(*lb.HttpHost).Set(lb, n.ChanListener.Dial)
 			n.OnClose(func() {
 				r.HttpHosts.Remove(*lb.HttpHost, lb.HttpPath)
 			})
@@ -180,7 +178,7 @@ func (r *DefaultReversePortForwardingRegister) Get(ctx ssh.Context, addr string)
 	return
 }
 
-func (r *DefaultReversePortForwardingRegister) GetListener(apName, serviceName string) (ln *ServiceListener, err error) {
+func (r *DefaultReversePortForwardingRegister) GetListener(apName, serviceName string, addr ...string) (ln *ServiceListener, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -190,10 +188,23 @@ func (r *DefaultReversePortForwardingRegister) GetListener(apName, serviceName s
 		return
 	}
 
+	if len(addr) > 0 && addr[0] != "" {
+		if apLns, ok := listeners[addr[0]]; ok {
+			if ln, ok = apLns.byName[serviceName]; ok {
+				return
+			}
+		}
+		err = fmt.Errorf("Service %q not registered", serviceName)
+		return
+	}
+
 	var lns []*ServiceListener
 
 	for _, apLns := range listeners {
 		if ln, ok = apLns.byName[serviceName]; ok {
+			if ln.node != nil {
+				return
+			}
 			lns = append(lns, ln)
 		}
 	}
@@ -206,6 +217,5 @@ func (r *DefaultReversePortForwardingRegister) GetListener(apName, serviceName s
 	sort.Slice(lns, func(i, j int) bool {
 		return lns[i].cl.count < lns[j].cl.count
 	})
-	lns[0].Lock()
 	return lns[0], nil
 }

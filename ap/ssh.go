@@ -41,10 +41,10 @@ func (l *SSHListener) Addr() (addr net.Addr) {
 func SSHServer(keyFile string) (srvc *Service, closer io.Closer) {
 	srv := &ssh.Server{
 		Handler: sshHandler,
-		LocalPortForwardingCallback: func(ctx ssh.Context, addr string) bool {
+		SocketForwardingCallback: func(ctx ssh.Context, addr string) bool {
 			return true
 		},
-		ReversePortForwardingCallback: func(ctx ssh.Context, addr string) bool {
+		ReverseSocketForwardingCallback: func(ctx ssh.Context, addr string) bool {
 			return true
 		},
 		ConnCallback: func(conn net.Conn) net.Conn {

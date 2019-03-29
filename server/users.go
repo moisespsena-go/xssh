@@ -48,14 +48,8 @@ func NewUsers(db *DB) *Users {
 }
 
 func (s *Users) Add(name string, isAp, updateKey bool) (err error) {
-	stmt, err := s.DB.Prepare("INSERT INTO users (name, is_ap, update_key) VALUES (?, ?, ?)")
+	_, err = s.DB.Exec("INSERT INTO users (name, is_ap, update_key) VALUES (?, ?, ?)", name, isAp, updateKey)
 	if err != nil {
-		return fmt.Errorf("DB Prepare failed: %v", err)
-	}
-
-	defer stmt.Close()
-
-	if _, err := stmt.Exec(name, isAp, updateKey); err != nil {
 		return fmt.Errorf("DB Exec failed: %v", err)
 	}
 	return nil
@@ -140,6 +134,8 @@ func (s *Users) List(isAp bool, cb func(i int, u *User) error, nameMatch ...stri
 		return fmt.Errorf("DB Prepare failed: %v", err)
 	}
 
+	defer rows.Close()
+
 	for i := 1; rows.Next(); i++ {
 		var u User
 		if err = rows.Scan(&u.Name, &u.IsAp, &u.UpdateKey); err != nil {
@@ -158,7 +154,6 @@ func (s *Users) List(isAp bool, cb func(i int, u *User) error, nameMatch ...stri
 
 func (s *Users) CheckUser(user, key string) (err error, ok, isAp bool) {
 	var (
-		stmt      *sql.Stmt
 		updateKey bool
 		isAptPtr  *bool
 		pubKey    *string
@@ -166,14 +161,8 @@ func (s *Users) CheckUser(user, key string) (err error, ok, isAp bool) {
 	)
 
 	func() {
-		stmt, err = s.DB.Prepare("select update_key, pub_key, is_ap from users where name = ?")
+		rows, err = s.DB.Query("select update_key, pub_key, is_ap from users where name = ?", user)
 		if err != nil {
-			return
-		}
-
-		defer stmt.Close()
-
-		if rows, err = stmt.Query(user); err != nil {
 			return
 		}
 
@@ -195,12 +184,8 @@ func (s *Users) CheckUser(user, key string) (err error, ok, isAp bool) {
 
 	if pubKey == nil || *pubKey != key {
 		if updateKey {
-			stmt, err = s.DB.Prepare("update users set pub_key = ? where name = ?")
+			_, err = s.DB.Exec("update users set pub_key = ?, update_key = false where name = ?", key, user)
 			if err != nil {
-				return
-			}
-			defer stmt.Close()
-			if _, err = stmt.Exec(key, user); err != nil {
 				log.Printf("update %q pub_key failed: %v", user, err)
 				return
 			}
@@ -219,18 +204,11 @@ func (s *Users) CheckUser(user, key string) (err error, ok, isAp bool) {
 
 func (s *Users) IsAp(user string) (ok bool, err error) {
 	var (
-		stmt *sql.Stmt
 		rows *sql.Rows
 	)
 
-	stmt, err = s.DB.Prepare("select is_ap from users where name = ?")
+	rows, err = s.DB.Query("select is_ap from users where name = ?", user)
 	if err != nil {
-		return
-	}
-
-	defer stmt.Close()
-
-	if rows, err = stmt.Query(user); err != nil {
 		return
 	}
 

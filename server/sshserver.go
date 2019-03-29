@@ -2,24 +2,22 @@ package server
 
 import (
 	"fmt"
+	"github.com/gliderlabs/ssh"
+	"github.com/moisespsena-go/xssh/common"
+	"github.com/moisespsena-go/xssh/server/updater"
+	gossh "golang.org/x/crypto/ssh"
 	"io"
 	"log"
 	"net"
 	"path/filepath"
 	"strings"
-	"time"
-
-	"github.com/gliderlabs/ssh"
-	"github.com/moisespsena-go/xssh/common"
-	"github.com/moisespsena-go/xssh/server/updater"
-	gossh "golang.org/x/crypto/ssh"
 )
 
 func (srv *Server) setupSshServer() {
 	var register = srv.register
 
 	srv.srv = &ssh.Server{
-		Handler: func(s ssh.Session, request *gossh.Request) {
+		Handler: func(s ssh.Session) {
 			var (
 				uc   = updater.NewUpdaterClient(s, "AP "+s.User())
 				args = s.Command()
@@ -66,15 +64,12 @@ func (srv *Server) setupSshServer() {
 			}
 		},
 		ReverseForwardingRegister: register,
-		ReversePortForwardingCallback: func(ctx ssh.Context, addr string) bool {
-			return strings.HasPrefix(addr, "unix") && ctx.Value("is:ap").(bool)
-		},
-		ReverseUnixSocketForwardingListenerCallback: func(ctx ssh.Context, pth string) (listener net.Listener, err error) {
-			name := strings.TrimPrefix(pth, "unix:")
+		ReverseSocketForwardingListenerCallback: func(ctx ssh.Context, pth string) (listener net.Listener, err error) {
+			name := strings.TrimPrefix(strings.TrimPrefix(pth, "unix:"), "virtual:")
 			ap := ctx.User()
 			var (
 				fname    string
-				baseName = common.TimeToString(time.Now()) + ".sock"
+				baseName = ctx.Value(ssh.ContextKeyRemoteAddr).(net.Addr).String()
 			)
 			if name[0] == '*' {
 				serviceName := name[1:]
@@ -88,32 +83,27 @@ func (srv *Server) setupSshServer() {
 				fname = filepath.Join(ap, serviceName, baseName)
 				ctx.SetValue("load_balancer:"+serviceName, b)
 			} else {
-				fname = filepath.Join(ap, name+"_"+baseName)
+				fname = filepath.Join(ap, name+"/"+baseName)
 			}
 
-			unixListener := &UnixListener{
-				Str:        fname,
-				RootDir:    srv.SocketsDir,
-				SocketPath: filepath.Join(srv.SocketsDir, fname),
-				SockPerm:   srv.NodeSockerPerm,
-			}
+			lis := NewChanListener(fname)
 
-			if err = unixListener.Listen(); err != nil {
-				log.Printf("[AP %s] {%s} listen on %v failed: %v", ctx.User(), name, unixListener.SocketPath, err.Error())
+			if err = lis.Listen(); err != nil {
+				log.Printf("[AP %s] {%s} listen on %v failed: %v", ctx.User(), name, lis.ProtoAddr(), err.Error())
 				return
 			}
 
-			log.Printf("[AP %s] {%s} listening on %v", ctx.User(), name, unixListener.SocketPath)
+			log.Printf("[AP %s] {%s} listening on %v", ctx.User(), name, lis.ProtoAddr())
 
-			return unixListener, nil
+			return lis, nil
 		},
-		ReverseUnixSocketForwardingCallback: func(ctx ssh.Context, addr string) bool {
-			return ctx.Value("is:ap").(bool)
+		ReverseSocketForwardingCallback: func(ctx ssh.Context, addr string) bool {
+			return (strings.HasPrefix(addr, "unix:") || strings.HasPrefix(addr, "virtual:")) && ctx.Value("is:ap").(bool)
 		},
-		LocalUnixSocketForwardingCallback: func(ctx ssh.Context, addr string) bool {
+		SocketForwardingCallback: func(ctx ssh.Context, addr string) bool {
 			return !ctx.Value("is:ap").(bool)
 		},
-		LocalUnixSocketForwardingResolverCallback: func(ctx ssh.Context, addr string) (destAddr string, err error) {
+		SocketForwardingResolverCallback: func(ctx ssh.Context, addr string) (destAddr string, err error) {
 			apName := ctx.Value("ap:name").(string)
 			serviceName := strings.TrimPrefix(addr, "unix:")
 			var ln *ServiceListener
@@ -121,13 +111,14 @@ func (srv *Server) setupSshServer() {
 				return
 			}
 			if ln.node == nil {
+				ln.Lock()
 				ctx.Value(ssh.ContextKeyCloseListener).(ssh.CloseListener).CloseCallback(ln.Release)
 				log.Println("[CL " + ctx.User() + "] -> {" + serviceName + "}")
 				return ln.Addr().String(), nil
 			}
 
 			log.Println("[CL " + ctx.User() + "] -> " + ln.node.String())
-			return "unix:" + ln.node.SocketPath, nil
+			return ln.ProtoAddr(), nil
 		},
 		ConnCallback: func(conn net.Conn) net.Conn {
 			var i interface{} = conn

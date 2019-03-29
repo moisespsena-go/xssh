@@ -41,6 +41,7 @@ create table if not exists load_balancers (
 	service VARCHAR(50) NOT NULL, 
 	max_count INT NOT NULL DEFAULT 2, 
 	public_addr VARCHAR(255),
+	unix_socket BOOL NOT NULL DEFAULT false,
 	http_host VARCHAR(255),
 	http_path VARCHAR(255) NOT NULL DEFAULT '',
 	http_auth_enabled BOOL NOT NULL DEFAULT false,
@@ -66,15 +67,39 @@ func (s *DB) Close() error {
 }
 
 type HttpUsers struct {
-	Users map[string]string
+	users map[string]string
+}
+
+func (a *HttpUsers) Empty() bool {
+	return a.users == nil || len(a.users) == 0
+}
+
+func (a *HttpUsers) Set(user, password string) *HttpUsers {
+	if a.users == nil {
+		a.users = map[string]string{}
+	}
+	a.users[user] = password
+	return a
+}
+
+func (a *HttpUsers) Remove(user ...string) *HttpUsers {
+	if a.users == nil {
+		return a
+	}
+	for _, user := range user {
+		if _, ok := a.users[user]; ok {
+			delete(a.users, user)
+		}
+	}
+	return a
 }
 
 func (a *HttpUsers) Value() (v driver.Value, err error) {
-	if a.Users == nil || len(a.Users) == 0 {
+	if a.users == nil || len(a.users) == 0 {
 		return "", nil
 	}
 	var data []byte
-	if data, err = json.MarshalIndent(a.Users, "", "  "); err != nil {
+	if data, err = json.MarshalIndent(a.users, "", "  "); err != nil {
 		return
 	}
 	v = data
@@ -82,16 +107,16 @@ func (a *HttpUsers) Value() (v driver.Value, err error) {
 }
 
 func (a *HttpUsers) Scan(src interface{}) (err error) {
-	a.Users = map[string]string{}
+	a.users = map[string]string{}
 	if src != nil {
 		switch t := src.(type) {
 		case []byte:
 			if t != nil && len(t) > 0 {
-				return json.Unmarshal(t, &a.Users)
+				return json.Unmarshal(t, &a.users)
 			}
 		case string:
 			if t != "" {
-				return json.Unmarshal([]byte(t), &a.Users)
+				return json.Unmarshal([]byte(t), &a.users)
 			}
 		}
 	}
@@ -99,10 +124,10 @@ func (a *HttpUsers) Scan(src interface{}) (err error) {
 }
 
 func (a *HttpUsers) Match(user, password string) bool {
-	if a.Users == nil {
+	if a.users == nil {
 		return false
 	}
-	if pwd, ok := a.Users[user]; !ok || password != pwd {
+	if pwd, ok := a.users[user]; !ok || password != pwd {
 		return false
 	}
 	return true

@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/robfig/cron"
 	"os"
 
 	"github.com/moisespsena-go/httpu"
@@ -35,6 +36,7 @@ var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "X-SSH The server",
 	RunE: func(cmd *cobra.Command, args []string) (err error) {
+		renewToken, _ := cmd.Flags().GetString("renew-token")
 		addr, _ := cmd.Flags().GetString("addr")
 		updaterCmd, _ := cmd.Flags().GetString("updater-cmd")
 		updaterAddr, _ := cmd.Flags().GetString("updater-addr")
@@ -50,6 +52,11 @@ var serveCmd = &cobra.Command{
 
 		if addr == "" {
 			addr = common.DefaultServerPublicAddr
+		}
+
+		renewTokenSchedule, err := cron.Parse(renewToken)
+		if err != nil {
+			return fmt.Errorf("bad token-renew flag value: %v", err)
 		}
 
 		var Updater updater.Updater
@@ -122,14 +129,15 @@ var serveCmd = &cobra.Command{
 			}
 
 			return &server.Server{
-				Updater:        Updater,
-				SocketsDir:     "sockets",
-				KeyFile:        keyFile,
-				Addr:           addr,
-				HttpConfig:     httpConfig,
-				Users:          server.NewUsers(DB),
-				LoadBalancers:  server.NewLoadBalancers(DB),
-				NodeSockerPerm: 0666,
+				Updater:            Updater,
+				SocketsDir:         "sockets",
+				KeyFile:            keyFile,
+				Addr:               addr,
+				HttpConfig:         httpConfig,
+				Users:              server.NewUsers(DB),
+				LoadBalancers:      server.NewLoadBalancers(DB),
+				NodeSockerPerm:     0666,
+				RenewTokenSchedule: renewTokenSchedule,
 			}
 		})).RunWait()
 	},
@@ -138,6 +146,10 @@ var serveCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(serveCmd)
 	flags := serveCmd.Flags()
+
+	// token
+	flags.String("renew-token", "@daily", "Token renew interval. This is a cron Spec [see https://godoc.org/github.com/robfig/cron#hdr-CRON_Expression_Format].")
+	// net
 	flags.StringP("addr", "a", common.DefaultServerPublicAddr, "Public addr")
 	// updater
 	flags.String("updater-cmd", "", "Updater command")
@@ -149,7 +161,7 @@ func init() {
 	flags.Int("http-keep-alive-count", 0, "HTTP TCP Keep Alive count")
 	// https server
 	flags.Bool("https", false, "Enable HTTPS")
-	flags.String("https-addr", ":2043", "HTTPS Addr")
+	flags.String("https-addr", ":2443", "HTTPS Addr")
 	flags.String("https-cert-file", "server.crf", "TLS cert file")
 	flags.String("https-key-file", "server.key", "TLS key file")
 	flags.Bool("https-disable-http2", false, "Disable support for HTTP/2 protocol in HTTPS connections")

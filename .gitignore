@@ -5,3 +5,4 @@ xssh*
 dist
 vendor/
 sockets/
+xssh.token

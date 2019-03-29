@@ -21,7 +21,7 @@ import (
 
 var usersCmd = &cobra.Command{
 	Use:   "users",
-	Short: "Users manager",
+	Short: "users manager",
 }
 
 func withDB(f func(DB *server.DB) error) error {

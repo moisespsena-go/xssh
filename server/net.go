@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ type Listener interface {
 	fmt.Stringer
 
 	Listen() (err error)
+	ProtoAddr() string
 }
 
 type UnixListener struct {
@@ -30,6 +32,10 @@ type UnixListener struct {
 	SocketPath string
 	SockPerm   os.FileMode
 	onClose    []func()
+}
+
+func (l *UnixListener) ProtoAddr() string {
+	return "unix:" + l.SocketPath
 }
 
 func (l *UnixListener) OnClose(f ...func()) {
@@ -116,11 +122,15 @@ type AddrListener struct {
 	str       string
 }
 
-func (l AddrListener) String() string {
+func (l AddrListener) ProtoAddr() string {
 	if l.str == "" {
-		return l.StrPrefix + l.AddrS
+		return l.ProtoAddr()
 	}
-	return l.StrPrefix + l.str
+	return l.str
+}
+
+func (l AddrListener) String() string {
+	return l.StrPrefix + l.ProtoAddr()
 }
 
 func (l *AddrListener) Listen() (err error) {
@@ -142,17 +152,35 @@ func (l *AddrListener) Close() (err error) {
 }
 
 type ChanListener struct {
-	addr    ChanListenerAddr
-	Source  chan net.Conn
+	addr    VirtualAddr
+	src     chan net.Conn
 	onClose []func()
 	mu      sync.Mutex
 }
 
-func NewChanListener(addr ChanListenerAddr, source chan net.Conn) *ChanListener {
-	if source == nil {
-		source = make(chan net.Conn)
+func (l *ChanListener) String() string {
+	return l.addr.String()
+}
+
+func (l *ChanListener) Listen() (err error) {
+	if l.src != nil {
+		return errors.New(l.ProtoAddr() + " is listening")
 	}
-	return &ChanListener{addr: addr, Source: source}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.src != nil {
+		return errors.New(l.ProtoAddr() + " is listening")
+	}
+	l.src = make(chan net.Conn)
+	return nil
+}
+
+func NewChanListener(name string) *ChanListener {
+	return &ChanListener{addr: VirtualAddr{name}}
+}
+
+func (l *ChanListener) ProtoAddr() string {
+	return l.addr.String()
 }
 
 func (l *ChanListener) OnClose(f ...func()) {
@@ -160,14 +188,14 @@ func (l *ChanListener) OnClose(f ...func()) {
 }
 
 func (l *ChanListener) Accept() (net.Conn, error) {
-	if l.Source == nil {
+	if l.src == nil {
 		return nil, io.EOF
 	}
-	con := <-l.Source
+	con := <-l.src
 	if con == nil {
 		return nil, io.EOF
 	}
-	if l.Source == nil {
+	if l.src == nil {
 		con.Close()
 		return nil, io.EOF
 	}
@@ -175,16 +203,16 @@ func (l *ChanListener) Accept() (net.Conn, error) {
 }
 
 func (l *ChanListener) Close() error {
-	if l.Source == nil {
+	if l.src == nil {
 		return nil
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.Source == nil {
+	if l.src == nil {
 		return nil
 	}
-	close(l.Source)
-	l.Source = nil
+	close(l.src)
+	l.src = nil
 	for _, cb := range l.onClose {
 		cb()
 	}
@@ -195,46 +223,85 @@ func (l *ChanListener) Addr() (addr net.Addr) {
 	return l.addr
 }
 
-type ChanListenerAddr struct {
+func (l *ChanListener) Dial(ctx context.Context, remoteAddr string) (con net.Conn, err error) {
+	laddr, radd := &VirtualAddr{remoteAddr}, &VirtualAddr{"{" + remoteAddr + "->" + l.addr.Name + "}"}
+	ir, iw := io.Pipe()
+	or, ow := io.Pipe()
+
+	rConn := &VirtualCon{Writer: ow, Reader: ir, RAddr: radd, LAddr: laddr}
+	l.src <- rConn
+	lConn := &VirtualCon{Writer: iw, Reader: or, RAddr: laddr, LAddr: radd}
+	return lConn, nil
+}
+
+type VirtualAddr struct {
 	Name string
 }
 
-func (addr ChanListenerAddr) Network() string {
+func (addr VirtualAddr) Network() string {
 	return "<nil>"
 }
 
-func (addr ChanListenerAddr) String() string {
-	return "chan:" + addr.Name
+func (addr VirtualAddr) String() string {
+	return "virtual:" + addr.Name
 }
 
-type NetCon struct {
-	io.Writer
-	io.Reader
-	LAddr net.Addr
-	RAddr net.Addr
+type VirtualCon struct {
+	Writer io.Writer
+	Reader io.Reader
+	LAddr  net.Addr
+	RAddr  net.Addr
+	mu     sync.Mutex
+	closed bool
 }
 
-func (con NetCon) LocalAddr() net.Addr {
+func (con VirtualCon) Write(p []byte) (n int, err error) {
+	if con.closed {
+		err = io.EOF
+		return
+	}
+	return con.Writer.Write(p)
+}
+
+func (con VirtualCon) Read(p []byte) (n int, err error) {
+	if con.closed {
+		err = io.EOF
+		return
+	}
+	return con.Reader.Read(p)
+}
+
+func (con VirtualCon) LocalAddr() net.Addr {
 	return con.LAddr
 }
 
-func (con NetCon) RemoteAddr() net.Addr {
+func (con VirtualCon) RemoteAddr() net.Addr {
 	return con.RAddr
 }
 
-func (con NetCon) SetDeadline(t time.Time) error {
+func (con VirtualCon) SetDeadline(t time.Time) error {
 	return nil
 }
 
-func (con NetCon) SetReadDeadline(t time.Time) error {
+func (con VirtualCon) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-func (con NetCon) SetWriteDeadline(t time.Time) error {
+func (con VirtualCon) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-func (con NetCon) Close() error {
+func (con VirtualCon) Close() error {
+	if con.closed {
+		return nil
+	}
+	con.mu.Lock()
+	defer con.mu.Unlock()
+	if con.closed {
+		return nil
+	}
+	con.closed = true
+
 	if closer, ok := con.Writer.(io.Closer); ok {
 		closer.Close()
 	}

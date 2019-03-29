@@ -60,7 +60,8 @@ func (cp Copier) Copy() error {
 	defer cp.Close()
 	_, err := io.Copy(cp.w, cp.r)
 	if err != nil {
-		if err == io.EOF || strings.Contains(err.Error(), "closed network connection") {
+		errs := err.Error()
+		if err == io.EOF || strings.Contains(errs, "closed network connection") || strings.Contains(errs, "closed pipe") {
 			return io.EOF
 		}
 		log.Println("io.Copy ["+cp.name+"] error:", err)

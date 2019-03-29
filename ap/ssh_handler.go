@@ -15,7 +15,8 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
-func sshHandler(s ssh.Session, req *gossh.Request) {
+func sshHandler(s ssh.Session) {
+	req := s.Request()
 	cmds := s.Command()
 	var cmd *exec.Cmd
 	var iw io.WriteCloser

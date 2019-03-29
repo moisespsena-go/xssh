@@ -322,14 +322,14 @@ With connection count:
 
 func init() {
 	rootCmd.AddCommand(apCmd)
-
-	apCmd.Flags().StringP("update-interval", "U", "@daily", "Update check interval. This is a cron Spec.")
-	apCmd.Flags().IntP("port", "p", 2220, "XSSH server port.")
-	apCmd.Flags().StringP("host", "H", "localhost", "SERVER_HOST: The XSSH server host.")
-	apCmd.Flags().IntP("connections-count", "C", 1, "Number of connections. Minimum is `1`.")
-	apCmd.Flags().Bool("ssh", false, "Enable embeded SSH server")
-	apCmd.Flags().StringP("server-addr", "S", common.DefaultServerAddr, "The XSSH server addr in `HOST:PORT` format.")
-	apCmd.Flags().StringP("reconnect-timeout", "T", defaultReconnectTimeout, reconnectTimeoutUsage)
+	flags := apCmd.Flags()
+	flags.StringP("update-interval", "U", "@daily", "Update check interval. This is a cron Spec [see https://godoc.org/github.com/robfig/cron#hdr-CRON_Expression_Format].")
+	flags.IntP("port", "p", 2220, "XSSH server port.")
+	flags.StringP("host", "H", "localhost", "SERVER_HOST: The XSSH server host.")
+	flags.IntP("connections-count", "C", 1, "Number of connections. Minimum is `1`.")
+	flags.Bool("ssh", false, "Enable embeded SSH server")
+	flags.StringP("server-addr", "S", common.DefaultServerAddr, "The XSSH server addr in `HOST:PORT` format.")
+	flags.StringP("reconnect-timeout", "T", defaultReconnectTimeout, reconnectTimeoutUsage)
 }
 
 const reconnectTimeoutUsage = `Reconnect to server timeout.

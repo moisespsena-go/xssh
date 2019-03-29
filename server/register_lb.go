@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -26,14 +27,8 @@ func (sl *NodeServiceListener) Lock() {
 	sl.connections++
 }
 
-func (sl *NodeServiceListener) Dial() (conn net.Conn, err error) {
-	var addr = sl.Addr()
-	if _, ok := addr.(*net.UnixAddr); ok {
-		conn, err = net.Dial("unix", addr.String())
-	} else {
-		conn, err = net.Dial("tcp", addr.String())
-	}
-	return
+func (sl *NodeServiceListener) Dial(ctx context.Context, remoteAddr string) (conn net.Conn, err error) {
+	return sl.ServiceListener.Listener.(*ChanListener).Dial(ctx, remoteAddr)
 }
 
 type Nodes struct {
@@ -68,27 +63,34 @@ func (ns *Nodes) Add(LB *LoadBalancer, ln *ServiceListener) (node *Node, err err
 	if n, ok = ns.data[LB.Ap][LB.Service]; !ok {
 		var publicAddr string
 		if LB.PublicAddr == nil || *LB.PublicAddr == "" {
-			publicAddr = "localhost:0"
+			publicAddr = ""
 		} else {
 			publicAddr = *LB.PublicAddr
 		}
 
 		n = &Node{
-			UnixListener: &UnixListener{
+			ChanListener: NewChanListener(LB.Ap + "/" + LB.Service),
+			nodes:        ns,
+			Dir:          ns.Dir,
+			Ap:           LB.Ap,
+			Service:      LB.Service,
+			EndPoints:    map[string]*NodeServiceListener{},
+		}
+		if LB.UnixSocket {
+			ul := &UnixListener{
 				SocketPath: filepath.Join(ns.Dir, LB.Ap, LB.Service+".sock"),
 				SockPerm:   ns.SockPerm,
-			},
-			PublicListener: &AddrListener{
-				AddrS: publicAddr,
-			},
-			nodes:     ns,
-			Dir:       ns.Dir,
-			Ap:        LB.Ap,
-			Service:   LB.Service,
-			EndPoints: map[string]*NodeServiceListener{},
+			}
+			ul.Str = n.String() + "@" + ul.SocketPath
+			n.Listeners = append(n.Listeners, ul)
 		}
-		n.UnixListener.Str = n.String() + "@" + n.SocketPath
-		n.PublicListener.StrPrefix = n.String() + "@"
+		if publicAddr != "" {
+			pl := &AddrListener{
+				AddrS: publicAddr,
+			}
+			pl.StrPrefix = n.String() + "@"
+			n.Listeners = append(n.Listeners, pl)
+		}
 
 		ns.data[LB.Ap][LB.Service] = n
 		if err = n.Listen(); err != nil {

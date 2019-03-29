@@ -2,10 +2,15 @@ package server
 
 import (
 	"context"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"time"
+
+	"github.com/robfig/cron"
+	"github.com/satori/go.uuid"
 
 	"github.com/go-errors/errors"
 	"github.com/moisespsena-go/httpu"
@@ -24,6 +29,9 @@ type Server struct {
 	NodeSockerPerm os.FileMode
 	Updater        updater.Updater
 
+	Cron               *cron.Cron
+	RenewTokenSchedule cron.Schedule
+
 	Users         *Users
 	LoadBalancers *LoadBalancers
 	register      *DefaultReversePortForwardingRegister
@@ -35,7 +43,39 @@ type Server struct {
 	httpServer *httpu.Server
 }
 
+func (srv *Server) CreateToken() (err error) {
+	var exists bool
+	if _, err = os.Stat("xssh.token"); err == nil {
+		exists = true
+	}
+	token := uuid.NewV1().String() + "-" + uuid.NewV4().String()
+	err = ioutil.WriteFile("xssh.token", []byte(token), 0600)
+	if err != nil {
+		if exists {
+			return fmt.Errorf("renew token file failed: %v", err)
+		}
+		return fmt.Errorf("create token file failed: %v", err)
+	}
+	if exists {
+		log.Println("token updated")
+	} else {
+		log.Println("token created")
+	}
+	return
+}
+
 func (srv *Server) Setup(appender task.Appender) (err error) {
+	if _, err = os.Stat("xssh.token"); err != nil {
+		if os.IsNotExist(err) {
+			if err = srv.CreateToken(); err != nil {
+				return err
+			}
+			err = nil
+		} else {
+			return fmt.Errorf("stat of token failed: %v", err)
+		}
+	}
+
 	if srv.HttpHosts == nil {
 		srv.HttpHosts = &HttpHosts{}
 	}
@@ -65,11 +105,28 @@ func (srv *Server) Setup(appender task.Appender) (err error) {
 		appender.AddTask(srv.httpServer)
 	}
 
+	if srv.RenewTokenSchedule != nil {
+		if srv.Cron == nil {
+			srv.Cron = cron.New()
+
+			_ = appender.AddTask(task.NewTask(func() (err error) {
+				srv.Cron.Start()
+				return nil
+			}, srv.Cron.Stop))
+		}
+
+		srv.Cron.Schedule(srv.RenewTokenSchedule, cron.FuncJob(func() {
+			if err := srv.CreateToken(); err != nil {
+				log.Println("ERROR", err.Error())
+			}
+		}))
+	}
+
 	srv.setupSshServer()
 	return nil
 }
 
-func (srv *Server) Run() error {
+func (srv *Server) Run() (err error) {
 	srv.running = true
 	defer func() {
 		srv.running = false

@@ -70,11 +70,11 @@
 
 [[projects]]
   branch = "temp"
-  digest = "1:a023a603687444ceb85a12d5162f2964d9cc591ddd222b9a03a9dcdfa6b6183c"
+  digest = "1:a043112680539d7e1357169ab3852a7d3c30f6c134b2a061e4828d8bd7ece184"
   name = "github.com/gliderlabs/ssh"
   packages = ["."]
   pruneopts = "UT"
-  revision = "50e0dbade11ec10a43508f3252a01d42a5969c22"
+  revision = "b0b358892650fd580f551d532cc6c422c1563495"
   source = "github.com/moisespsena-go/ssh"
 
 [[projects]]
@@ -276,6 +276,14 @@
   version = "v1.1"
 
 [[projects]]
+  digest = "1:274f67cb6fed9588ea2521ecdac05a6d62a8c51c074c1fccc6a49a40ba80e925"
+  name = "github.com/satori/go.uuid"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "f58768cc1a7a7e77a3bd49e98cdd21419399b6a3"
+  version = "v1.2.0"
+
+[[projects]]
   digest = "1:3e39bafd6c2f4bf3c76c3bfd16a2e09e016510ad5db90dc02b88e2f565d6d595"
   name = "github.com/spf13/afero"
   packages = [
@@ -328,7 +336,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:b5a6fb71fcb583bf7a77f4fef4fcd613c7882bb63d69286ff0b85efda830f493"
+  digest = "1:5b1e3560b10bebafefcafa45db8cb121bfa1994b1503997b8b46631c2540e79a"
   name = "golang.org/x/crypto"
   packages = [
     "curve25519",
@@ -338,30 +346,33 @@
     "internal/subtle",
     "poly1305",
     "ssh",
+    "ssh/terminal",
   ]
   pruneopts = "UT"
   revision = "8dd112bcdc25174059e45e07517d9fc663123347"
 
 [[projects]]
   branch = "master"
-  digest = "1:a7e7d4a2763c58f27ccd9c712d073b3972ee8ba2780e652a8e918c7ef43149bf"
+  digest = "1:ae1462a6bb0dbe9da97809131d96936a2217a9322176b2dc1da85623c6c941c3"
   name = "golang.org/x/net"
   packages = [
     "http/httpguts",
     "http2",
     "http2/hpack",
     "idna",
+    "websocket",
   ]
   pruneopts = "UT"
   revision = "15845e8f865bdabdefb6e7da65b4d9e8de5e94ef"
 
 [[projects]]
   branch = "master"
-  digest = "1:9d1657fbbef403ab54f7eb39278a787f35536ef37f7c2a0775f49ea3356d5076"
+  digest = "1:1cecc41d51d8c61ed4840b7aa831a6bf1750b2a7a75eb5c75c593e79552c87de"
   name = "golang.org/x/sys"
   packages = [
     "cpu",
     "unix",
+    "windows",
   ]
   pruneopts = "UT"
   revision = "a34e9553db1e492c9a76e60db2296ae7e5fbb772"
@@ -413,13 +424,16 @@
     "github.com/moisespsena-go/overseer-task-restarts",
     "github.com/moisespsena-go/task",
     "github.com/moisespsena/go-default-logger",
-    "github.com/moisespsena/go-path-helpers",
     "github.com/opencontainers/go-digest",
+    "github.com/phayes/permbits",
     "github.com/robfig/cron",
+    "github.com/satori/go.uuid",
     "github.com/spf13/cobra",
     "github.com/spf13/viper",
     "golang.org/x/crypto/ssh",
+    "golang.org/x/crypto/ssh/terminal",
     "golang.org/x/net/http2",
+    "golang.org/x/net/websocket",
     "gopkg.in/yaml.v2",
   ]
   solver-name = "gps-cdcl"

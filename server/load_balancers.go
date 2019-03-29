@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/go-errors/errors"
 )
 
 type LoadBalancer struct {
@@ -12,6 +14,7 @@ type LoadBalancer struct {
 	HttpHost    *string
 	HttpPath    string
 	MaxCount    int
+	UnixSocket  bool
 
 	*Nodes
 }
@@ -30,15 +33,10 @@ func NewLoadBalancers(DB *DB) *LoadBalancers {
 }
 
 func (s *LoadBalancers) Add(ap, service string, maxCount int, publicAddr string) (err error) {
-	stmt, err := s.DB.Prepare("INSERT INTO load_balancers (ap, service, max_count, public_addr) VALUES (?, ?, ?, ?)")
+	_, err = s.DB.Exec("INSERT INTO load_balancers (ap, service, max_count, public_addr) VALUES (?, ?, ?, ?)",
+		ap, service, maxCount, publicAddr)
 	if err != nil {
-		return fmt.Errorf("DB Prepare failed: %v", err)
-	}
-
-	defer stmt.Close()
-
-	if _, err := stmt.Exec(ap, service, maxCount, publicAddr); err != nil {
-		return fmt.Errorf("DB Exec failed: %v", err)
+		return fmt.Errorf("DB exec failed: %v", err)
 	}
 	return nil
 }
@@ -51,74 +49,83 @@ func (s *LoadBalancers) Remove(ap string, name ...string) (removed int64, err er
 	sqls := "DELETE FROM load_balancers WHERE ap = ? AND service IN "
 	sqls += "(?" + strings.Repeat(",?", len(name)-1) + ")"
 
-	var stmt *sql.Stmt
-
-	if stmt, err = s.DB.Prepare(sqls); err != nil {
-		return 0, fmt.Errorf("DB Prepare failed: %v", err)
-	}
-
-	defer stmt.Close()
-
-	var args = []interface{}{ap}
+	var (
+		args = []interface{}{ap}
+		res  sql.Result
+	)
 	for _, name := range name {
 		args = append(args, name)
 	}
 
-	if result, err := stmt.Exec(args...); err != nil {
-		return 0, fmt.Errorf("DB Exec failed: %v", err)
-	} else if removed, err = result.RowsAffected(); err != nil {
-		err = fmt.Errorf("DB Get Affcted Rows failed: %v", err)
-		return 0, err
+	if res, err = s.DB.Exec(sqls, args...); err != nil {
+		return 0, fmt.Errorf("DB exec failed: %v", err)
+	} else if removed, err = res.RowsAffected(); err != nil {
+		return 0, fmt.Errorf("DB get affected rows failed: %v", err)
 	}
 	return
 }
 
-func (s *Users) SetMaxCount(value int, ap string, name ...string) (removed int64, err error) {
-	if len(name) == 0 {
+func (s *LoadBalancers) SetHttpHost(ap, name string, value *string) (err error) {
+	return s.Set(ap, name, "http_host", value)
+}
+
+func (s *LoadBalancers) SetHttpPath(ap, name string, value string) (err error) {
+	return s.Set(ap, name, "http_path", value)
+}
+
+func (s *LoadBalancers) SetHttpAuthEnabled(ap, name string, value bool) (err error) {
+	return s.Set(ap, name, "http_auth_enabled", value)
+}
+
+func (s *LoadBalancers) HttpUserAdd(ap, name, username, pasword string) (err error) {
+	var users HttpUsers
+	if users, _, err = s.GetUsers(ap, name); err != nil {
 		return
 	}
-
-	sqls := "UPDATE load_balancers SET max_count = ? WHERE ap = ? AND name IN "
-	sqls += "(?" + strings.Repeat(",?", len(name)-1) + ")"
-
-	var stmt *sql.Stmt
-
-	if stmt, err = s.DB.Prepare(sqls); err != nil {
-		return 0, fmt.Errorf("DB Prepare failed: %v", err)
-	}
-
-	defer stmt.Close()
-
-	var args = []interface{}{value, ap}
-	for _, name := range name {
-		args = append(args, name)
-	}
-
-	if result, err := stmt.Exec(args...); err != nil {
-		return 0, fmt.Errorf("DB Exec failed: %v", err)
-	} else if removed, err = result.RowsAffected(); err != nil {
-		err = fmt.Errorf("DB Get Affcted Rows failed: %v", err)
-		return 0, err
-	}
-	return
+	return s.Set(ap, name, "http_auth_enabled", users.Set(username, pasword))
 }
 
-func (s *Users) SetPublicAddr(ap, name, value string) (removed int64, err error) {
-	sqls := "UPDATE load_balancers SET public_addr = ? WHERE ap = ? AND name = ? "
+func (s *LoadBalancers) HttpUserRemove(ap, name string, username ...string) (err error) {
+	if len(username) == 0 {
+		return
+	}
+	var users HttpUsers
+	if users, _, err = s.GetUsers(ap, name); err != nil {
+		return
+	}
+	return s.Set(ap, name, "http_auth_enabled", users.Remove(username...))
+}
+
+func (s *LoadBalancers) SetUnixSocket(ap, name string, value bool) (err error) {
+	return s.Set(ap, name, "unix_socket", value)
+}
+
+func (s *LoadBalancers) SetMaxCount(ap, name string, value int) (err error) {
+	return s.Set(ap, name, "max_xount", value)
+}
+
+func (s *LoadBalancers) SetPublicAddr(ap, name, value string) (err error) {
+	return s.Set(ap, name, "public_addr", value)
+}
+
+func (s *LoadBalancers) Set(ap, name, field string, value interface{}) (err error) {
+	sqls := "UPDATE load_balancers SET " + field + " = ? WHERE ap = ? AND name = ? "
 
 	var stmt *sql.Stmt
 
 	if stmt, err = s.DB.Prepare(sqls); err != nil {
-		return 0, fmt.Errorf("DB Prepare failed: %v", err)
+		return fmt.Errorf("DB Prepare failed: %v", err)
 	}
 
 	defer stmt.Close()
 
 	if result, err := stmt.Exec(ap, name, value); err != nil {
-		return 0, fmt.Errorf("DB Exec failed: %v", err)
-	} else if removed, err = result.RowsAffected(); err != nil {
-		err = fmt.Errorf("DB Get Affcted Rows failed: %v", err)
-		return 0, err
+		return fmt.Errorf("DB Exec failed: %v", err)
+	} else if af, err := result.RowsAffected(); err != nil {
+		err = fmt.Errorf("DB Get Affected Rows failed: %v", err)
+		return err
+	} else if af == 0 {
+		err = errors.New("Recorde not found")
 	}
 	return
 }
@@ -149,6 +156,8 @@ func (s *LoadBalancers) List(cb func(i int, lb *LoadBalancer) error, filter *Loa
 		return fmt.Errorf("DB Query failed: %v", err)
 	}
 
+	defer rows.Close()
+
 	for i := 1; rows.Next(); i++ {
 		var lb LoadBalancer
 		if err = rows.Scan(&lb.Ap, &lb.Service, &lb.MaxCount, &lb.PublicAddr, &lb.HttpHost, &lb.HttpPath); err != nil {
@@ -173,24 +182,20 @@ func (s *LoadBalancers) Get(ap, service string) (balancer *LoadBalancer, err err
 	return
 }
 
-func (s *LoadBalancers) GetUsers(ap, service string) (users *HttpUsers, err error) {
-	rows, err := s.DB.Query("SELECT http_auth_enabled, http_users FROM load_balancers WHERE ap = ? AND service = ?", ap, service)
+func (s *LoadBalancers) GetUsers(ap, service string) (users HttpUsers, enabled bool, err error) {
+	var rows *sql.Rows
+	rows, err = s.DB.Query("SELECT http_auth_enabled, http_users FROM load_balancers WHERE ap = ? AND service = ?", ap, service)
 	if err != nil {
-		return nil, fmt.Errorf("DB Query failed: %v", err)
+		err = fmt.Errorf("DB Query failed: %v", err)
+		return
 	}
 
+	defer rows.Close()
 	if rows.Next() {
-		var (
-			enabled   bool
-			authUsers HttpUsers
-		)
-		if err = rows.Scan(&enabled, &authUsers); err != nil {
-			return nil, fmt.Errorf("Scan auth failed: %v", err)
-		}
-		if !enabled {
+		if err = rows.Scan(&enabled, &users); err != nil {
+			err = fmt.Errorf("Scan auth failed: %v", err)
 			return
 		}
-		users = &authUsers
 	}
 	return
 }

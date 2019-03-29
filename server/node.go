@@ -10,13 +10,13 @@ import (
 )
 
 type Node struct {
-	*UnixListener
-	nodes          *Nodes
-	Dir            string
-	Ap, Service    string
-	PublicListener *AddrListener
-	EndPoints      map[string]*NodeServiceListener
-	mu             sync.Mutex
+	*ChanListener
+	nodes       *Nodes
+	Dir         string
+	Ap, Service string
+	Listeners   []Listener
+	EndPoints   map[string]*NodeServiceListener
+	mu          sync.Mutex
 }
 
 func (n Node) CloseEndPont(addr string) {
@@ -68,7 +68,7 @@ func (n Node) proxy(conn net.Conn) {
 		rCon net.Conn
 		err  error
 	)
-	rCon, err = minSL.Dial()
+	rCon, err = minSL.Dial(nil, conn.RemoteAddr().String())
 
 	if err != nil {
 		log.Println(prfx, "dial to", minSL.Name, "failed:", err.Error())
@@ -94,17 +94,16 @@ func (n Node) String() string {
 }
 
 func (n Node) Listen() (err error) {
-	var addrs []string
-	if err = n.UnixListener.Listen(); err == nil {
-		addrs = append(addrs, n.UnixListener.SocketPath)
-		if n.PublicListener != nil {
-			if err = n.PublicListener.Listen(); err == nil {
-				addrs = append(addrs, n.PublicListener.Addr().String())
-			}
-		}
-
-		log.Println(n.String(), "listening on", "{"+strings.Join(addrs, ", ")+"}")
+	if err = n.ChanListener.Listen(); err != nil {
+		return
 	}
+	var addrs = []string{n.ChanListener.ProtoAddr()}
+	for _, l := range n.Listeners {
+		if err = l.Listen(); err == nil {
+			addrs = append(addrs, l.ProtoAddr())
+		}
+	}
+	log.Println(n.String(), "listening on", "{"+strings.Join(addrs, ", ")+"}")
 	return
 }
 
@@ -123,21 +122,15 @@ func (n Node) forever(ln Listener) {
 }
 
 func (n Node) Forever() {
-	if n.PublicListener != nil {
-		go n.forever(n.PublicListener)
+	for _, l := range n.Listeners {
+		go n.forever(l)
 	}
-
-	n.forever(n.UnixListener)
+	n.forever(n)
 }
 
 func (n Node) Close() (err error) {
-	err = n.UnixListener.Close()
-	if n.PublicListener != nil {
-		if err == nil {
-			err = n.PublicListener.Close()
-		} else {
-			n.PublicListener.Close()
-		}
+	for _, l := range n.Listeners {
+		l.Close()
 	}
 	return
 }
