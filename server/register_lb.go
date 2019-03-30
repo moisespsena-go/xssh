@@ -15,20 +15,40 @@ type NodeServiceListener struct {
 	mu          sync.Mutex
 }
 
-func (sl *NodeServiceListener) Release() {
-	sl.mu.Lock()
-	defer sl.mu.Unlock()
-	sl.connections--
-}
-
-func (sl *NodeServiceListener) Lock() {
-	sl.mu.Lock()
-	defer sl.mu.Unlock()
-	sl.connections++
-}
-
 func (sl *NodeServiceListener) Dial(ctx context.Context, remoteAddr string) (conn net.Conn, err error) {
-	return sl.ServiceListener.Listener.(*ChanListener).Dial(ctx, remoteAddr)
+	conn, err = sl.ServiceListener.Listener.(*ChanListener).Dial(ctx, remoteAddr)
+	if err == nil {
+		sl.mu.Lock()
+		defer sl.mu.Unlock()
+		sl.connections++
+		conn2 := &conWithClosers{Conn: conn}
+		conn2.OnClose(func() {
+			sl.mu.Lock()
+			defer sl.mu.Unlock()
+			sl.connections--
+		})
+		conn = conn2
+	}
+	return
+}
+
+type conWithClosers struct {
+	net.Conn
+	closers []func()
+}
+
+func (n *conWithClosers) OnClose(f ...func()) {
+	n.closers = append(n.closers, f...)
+}
+
+func (n *conWithClosers) Close() error {
+	defer func() {
+		for _, f := range n.closers {
+			f()
+		}
+		n.closers = nil
+	}()
+	return n.Conn.Close()
 }
 
 type Nodes struct {
@@ -47,7 +67,7 @@ func (ns *Nodes) Count(ap, service string) int {
 
 func (ns *Nodes) Add(LB *LoadBalancer, ln *ServiceListener) (node *Node, err error) {
 	if ns.Count(LB.Ap, LB.Service) >= LB.MaxCount {
-		return nil, errors.New("Load balancer endpoints overflowing")
+		return nil, errors.New("load balancer endpoints overflowing")
 	}
 	if ns.data == nil {
 		ns.data = map[string]map[string]*Node{}

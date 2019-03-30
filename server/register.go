@@ -34,18 +34,6 @@ func (sl *ServiceListener) Close() error {
 	return sl.Listener.Close()
 }
 
-func (sl *ServiceListener) Release() {
-	sl.cl.mu.Lock()
-	defer sl.cl.mu.Unlock()
-	sl.cl.count--
-}
-
-func (sl *ServiceListener) Lock() {
-	sl.cl.mu.Lock()
-	defer sl.cl.mu.Unlock()
-	sl.cl.count++
-}
-
 type DefaultReversePortForwardingRegister struct {
 	forwards  map[string]map[string]*ClientListeners
 	mu        sync.Mutex
@@ -121,12 +109,11 @@ func (r *DefaultReversePortForwardingRegister) Register(ctx ssh.Context, addr st
 			return errors.New("AP " + apName + "at" + clientKey + ": add endpoint to node failed:" + err.Error())
 		}
 
-		if lb.HttpHost != nil && len(n.EndPoints) == 1 {
-			r.HttpHosts.Register(*lb.HttpHost).Set(lb, n.ChanListener.Dial)
-			n.OnClose(func() {
-				r.HttpHosts.Remove(*lb.HttpHost, lb.HttpPath)
-			})
-		}
+		r.HttpHosts.GetOrRegister(*lb.HttpHost).Set(lb, n)
+
+		n.OnClose(func() {
+			r.HttpHosts.Remove(*lb.HttpHost, lb.HttpPath)
+		})
 
 		sl.node = n
 	}

@@ -2,15 +2,16 @@ package server
 
 import (
 	"fmt"
-	"github.com/gliderlabs/ssh"
-	"github.com/moisespsena-go/xssh/common"
-	"github.com/moisespsena-go/xssh/server/updater"
-	gossh "golang.org/x/crypto/ssh"
 	"io"
 	"log"
 	"net"
 	"path/filepath"
 	"strings"
+
+	"github.com/gliderlabs/ssh"
+	"github.com/moisespsena-go/xssh/common"
+	"github.com/moisespsena-go/xssh/server/updater"
+	gossh "golang.org/x/crypto/ssh"
 )
 
 func (srv *Server) setupSshServer() {
@@ -102,23 +103,6 @@ func (srv *Server) setupSshServer() {
 		},
 		SocketForwardingCallback: func(ctx ssh.Context, addr string) bool {
 			return !ctx.Value("is:ap").(bool)
-		},
-		SocketForwardingResolverCallback: func(ctx ssh.Context, addr string) (destAddr string, err error) {
-			apName := ctx.Value("ap:name").(string)
-			serviceName := strings.TrimPrefix(addr, "unix:")
-			var ln *ServiceListener
-			if ln, err = register.GetListener(apName, serviceName); err != nil {
-				return
-			}
-			if ln.node == nil {
-				ln.Lock()
-				ctx.Value(ssh.ContextKeyCloseListener).(ssh.CloseListener).CloseCallback(ln.Release)
-				log.Println("[CL " + ctx.User() + "] -> {" + serviceName + "}")
-				return ln.Addr().String(), nil
-			}
-
-			log.Println("[CL " + ctx.User() + "] -> " + ln.node.String())
-			return ln.ProtoAddr(), nil
 		},
 		ConnCallback: func(conn net.Conn) net.Conn {
 			var i interface{} = conn

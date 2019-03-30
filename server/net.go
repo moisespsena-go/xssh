@@ -158,6 +158,10 @@ type ChanListener struct {
 	mu      sync.Mutex
 }
 
+func (l *ChanListener) Name() string {
+	return l.addr.Name
+}
+
 func (l *ChanListener) String() string {
 	return l.addr.String()
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log"
 	"net"
 	"strings"
@@ -39,43 +40,15 @@ func (n Node) proxy(conn net.Conn) {
 		return
 	}
 
-	var (
-		first = true
-		min   int
-		minSL *NodeServiceListener
-	)
-
-	for _, sl := range n.EndPoints {
-		if first {
-			min = sl.connections
-			minSL = sl
-			first = false
-		} else {
-			if sl.connections < min {
-				minSL = sl
-			}
-		}
-	}
-
-	minSL.Lock()
-	defer minSL.Release()
-
 	n.mu.Unlock()
 
-	var (
-		addrs = minSL.Addr().String()
-
-		rCon net.Conn
-		err  error
-	)
-	rCon, err = minSL.Dial(nil, conn.RemoteAddr().String())
-
+	sl, rCon, err := n.NextDialSl(nil, conn.RemoteAddr().String())
 	if err != nil {
-		log.Println(prfx, "dial to", minSL.Name, "failed:", err.Error())
+		log.Println(prfx, "dial failed:", err.Error())
 		return
 	}
-
-	rprfx := prfx + " " + minSL.Name + "@" + "{" + addrs + "}"
+	addrs := sl.Addr().String()
+	rprfx := prfx + " " + sl.Name + "@" + "{" + addrs + "}"
 
 	defer func() {
 		rCon.Close()
@@ -104,6 +77,35 @@ func (n Node) Listen() (err error) {
 		}
 	}
 	log.Println(n.String(), "listening on", "{"+strings.Join(addrs, ", ")+"}")
+	return
+}
+
+func (n Node) NextDial(ctx context.Context, remoteAddr string) (conn net.Conn, err error) {
+	_, conn, err = n.NextDialSl(ctx, remoteAddr)
+	return
+}
+
+func (n Node) NextDialSl(ctx context.Context, remoteAddr string) (sl *NodeServiceListener, conn net.Conn, err error) {
+	var (
+		first = true
+		min   int
+	)
+
+	for _, sl2 := range n.EndPoints {
+		if first {
+			min = sl2.connections
+			sl = sl2
+			first = false
+		} else {
+			if sl2.connections < min {
+				sl = sl2
+			}
+		}
+	}
+
+	if conn, err = sl.Dial(nil, remoteAddr); err != nil {
+		sl = nil
+	}
 	return
 }
 

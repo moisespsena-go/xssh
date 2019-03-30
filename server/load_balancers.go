@@ -163,6 +163,9 @@ func (s *LoadBalancers) List(cb func(i int, lb *LoadBalancer) error, filter *Loa
 		if err = rows.Scan(&lb.Ap, &lb.Service, &lb.MaxCount, &lb.PublicAddr, &lb.HttpHost, &lb.HttpPath); err != nil {
 			return fmt.Errorf("Scan Load Balancer %d failed: %v", i, err)
 		}
+		if lb.HttpPath != "" {
+			lb.HttpPath = cleanPth(lb.HttpPath)
+		}
 		if err = cb(i, &lb); err != nil {
 			if err == ErrStopIteration {
 				return nil
