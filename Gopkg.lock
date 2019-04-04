@@ -214,7 +214,7 @@
 [[projects]]
   branch = "master"
   digest = "1:a821796fb3ed919b11719ec9ab19dc036301ccbeb67660c80f83f4785fef74d5"
-  name = "github.com/moisespsena/go-default-logger"
+  name = "github.com/moisespsena-go/default-logger"
   packages = ["."]
   pruneopts = "UT"
   revision = "be4d3623a3e4dc02901c67caaeaa5c1704abc5f9"
@@ -222,7 +222,7 @@
 [[projects]]
   branch = "master"
   digest = "1:9503135a30a108890c68d15a4bed816a4d2a4058f7d7ea136d516b19966d2c02"
-  name = "github.com/moisespsena/go-error-wrap"
+  name = "github.com/moisespsena-go/error-wrap"
   packages = ["."]
   pruneopts = "UT"
   revision = "7e8df00a35080dff30e766ff640b1be4e7870304"
@@ -423,7 +423,7 @@
     "github.com/moisespsena-go/httpu",
     "github.com/moisespsena-go/overseer-task-restarts",
     "github.com/moisespsena-go/task",
-    "github.com/moisespsena/go-default-logger",
+    "github.com/moisespsena-go/default-logger",
     "github.com/opencontainers/go-digest",
     "github.com/phayes/permbits",
     "github.com/robfig/cron",

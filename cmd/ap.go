@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/moisespsena/go-default-logger"
+	"github.com/moisespsena-go/default-logger"
 	"github.com/robfig/cron"
 
 	"github.com/moisespsena-go/xssh/updater"
