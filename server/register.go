@@ -29,7 +29,7 @@ type ServiceListener struct {
 
 func (sl *ServiceListener) Close() error {
 	if sl.node != nil {
-		defer sl.node.CloseEndPont(sl.Addr().String())
+		defer sl.node.CloseEndPoint(sl.Addr().String())
 	}
 	return sl.Listener.Close()
 }

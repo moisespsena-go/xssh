@@ -11,6 +11,7 @@ import (
 
 type NodeServiceListener struct {
 	*ServiceListener
+	key         string
 	connections int
 	mu          sync.Mutex
 }
@@ -56,9 +57,13 @@ type Nodes struct {
 	data     map[string]map[string]*Node
 	Ln       net.Listener
 	SockPerm os.FileMode
+	mu       sync.RWMutex
 }
 
 func (ns *Nodes) Count(ap, service string) int {
+	ns.mu.RLock()
+	defer ns.mu.RUnlock()
+
 	if ns.data == nil || ns.data[ap] == nil || ns.data[ap][service] == nil {
 		return 0
 	}
@@ -66,6 +71,9 @@ func (ns *Nodes) Count(ap, service string) int {
 }
 
 func (ns *Nodes) Add(LB *LoadBalancer, ln *ServiceListener) (node *Node, err error) {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+
 	if ns.Count(LB.Ap, LB.Service) >= LB.MaxCount {
 		return nil, errors.New("load balancer endpoints overflowing")
 	}
@@ -118,7 +126,8 @@ func (ns *Nodes) Add(LB *LoadBalancer, ln *ServiceListener) (node *Node, err err
 		}
 		go n.Forever()
 	}
-	ns.data[LB.Ap][LB.Service].EndPoints[ln.Addr().String()] = &NodeServiceListener{ServiceListener: ln}
+	key := ln.Addr().String()
+	ns.data[LB.Ap][LB.Service].EndPoints[key] = &NodeServiceListener{ServiceListener: ln, key: key}
 	ln.node = n
 	return n, nil
 }
@@ -126,11 +135,23 @@ func (ns *Nodes) Add(LB *LoadBalancer, ln *ServiceListener) (node *Node, err err
 func (ns *Nodes) Remove(LB *LoadBalancer, ln *NodeServiceListener) {
 	ap, service := LB.Ap, LB.Service
 
-	if ns.data == nil || ns.data[ap] == nil || ns.data[ap][service] == nil || ns.data[ap][service].EndPoints[ln.Addr().String()] == nil {
+	if !func() bool {
+		ns.mu.RLock()
+		defer ns.mu.RUnlock()
+
+		if ns.data == nil || ns.data[ap] == nil || ns.data[ap][service] == nil || ns.data[ap][service].EndPoints[ln.key] == nil {
+			return false
+		}
+		return true
+	}() {
 		return
 	}
 
-	delete(ns.data[ap][service].EndPoints, ln.Addr().String())
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+
+	delete(ns.data[ap][service].EndPoints, ln.key)
+
 	if len(ns.data[ap][service].EndPoints) == 0 {
 		ns.data[ap][service].Close()
 		delete(ns.data[ap], service)

@@ -181,11 +181,19 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:c6d11967bbc7f2918846dfeb1dfe22eb343abe9a18fb9c240dd9bc4d9e1fad7e"
+  digest = "1:08c430c7b7ab0dd7f94889af18129fe0736ab2cd4df5d54e8937a706b8d9ec9a"
+  name = "github.com/moisespsena-go/default-logger"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "d03cb4229ba7fbcda79d1eeb49547abf779b7bb8"
+
+[[projects]]
+  branch = "master"
+  digest = "1:261bd12dbd30a3a2fce1bb314e77287f4a4163e1a72f1630940da2fc61cd4e4a"
   name = "github.com/moisespsena-go/httpu"
   packages = ["."]
   pruneopts = "UT"
-  revision = "f0ea566210409b4de5c21bae447b02ec960a60be"
+  revision = "9c14f08a89cb2600bfc5d0f73c7ecf96fceb983a"
 
 [[projects]]
   branch = "master"

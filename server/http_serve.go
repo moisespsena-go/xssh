@@ -3,16 +3,19 @@ package server
 import (
 	"context"
 	"fmt"
+	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
+	"mime"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 
+	"github.com/moisespsena-go/httpu"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/websocket"
 )
@@ -85,6 +88,49 @@ func (srv *Server) serveLocal(w http.ResponseWriter, r *http.Request) {
 	}).ServeHTTP(w, r)
 }
 
+func (srv *Server) renderOrNotFound(w http.ResponseWriter, r *http.Request, status int, fileName ...string) {
+	for _, fileName := range fileName {
+		fileName = filepath.Join("www", fileName)
+		if f, err := os.Open(fileName); !os.IsNotExist(err) {
+			if err != nil {
+				w.Write([]byte(err.Error()))
+			} else {
+				defer f.Close()
+				if pos := strings.LastIndexByte(fileName, '.'); pos != -1 {
+					typ := mime.TypeByExtension(fileName[pos+1:])
+					if typ == "" {
+						typ = "text/html"
+					}
+					w.Header().Set("Content-Type", typ)
+				}
+				io.Copy(w, f)
+			}
+			return
+		} else if tmpl, err := template.ParseFiles(fileName + ".tmpl"); !os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(status)
+			if err == nil {
+				err = tmpl.Execute(w, r)
+			}
+			if err != nil {
+				w.Write([]byte(err.Error()))
+			}
+			return
+		} else if f, err := os.Open(fileName + ".html"); !os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(status)
+			if err != nil {
+				w.Write([]byte(err.Error()))
+			} else {
+				defer f.Close()
+				io.Copy(w, f)
+			}
+			return
+		}
+	}
+	http.NotFound(w, r)
+}
+
 func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	url := r.URL.String()
 	log.Println("HTTP:", r.Host, r.Proto, "<"+r.RemoteAddr+">", "`"+url+"`", "connected")
@@ -93,12 +139,26 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Println("HTTP:", r.Host, "<"+r.RemoteAddr+">", code, "`"+url+"`", "done")
 	}()
 
+	if r.RequestURI == "/" || r.RequestURI == "" {
+		srv.renderOrNotFound(w, r, 200, "index")
+		return
+	}
+
 	if isWebsocketRequest(r) {
 		srv.serveLocal(w, r)
 		return
 	}
-	host := strings.SplitN(r.Host, ":", 2)[0]
-	var lb *LB
+	var (
+		lb *LB
+
+		host     = strings.SplitN(r.Host, ":", 2)[0]
+		uriSlash = r.RequestURI
+	)
+
+	if !strings.HasSuffix(uriSlash, "/") {
+		uriSlash += "/"
+	}
+
 	if pths, ok := srv.HttpHosts.Get(host); ok {
 		for _, pth := range pths.sorted {
 			if strings.HasPrefix(r.RequestURI, pth) {
@@ -106,11 +166,17 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					lb = lb_
 					break
 				}
+			} else if uriSlash == pth {
+				if lb_, ok := pths.Get(pth); ok {
+					lb = lb_
+					break
+				}
 			}
 		}
 	}
+
 	if lb == nil {
-		http.NotFound(w, r)
+		srv.renderOrNotFound(w, r, 404, r.RequestURI, "not_found", "index")
 		return
 	}
 
@@ -134,21 +200,7 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	copyHeader(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 
-	var n int64
-
-	if len(resp.TransferEncoding) == 1 && resp.TransferEncoding[0] == "chunked" {
-		n, err = io.Copy(
-			ioutil.Discard,
-			httputil.NewChunkedReader(
-				io.TeeReader(
-					resp.Body,
-					&flushWriter{w},
-				),
-			),
-		)
-	} else {
-		n, err = io.Copy(&flushWriter{w}, resp.Body)
-	}
+	n, err := io.Copy(&flushWriter{w}, &ner{resp.Body})
 
 	prfx := fmt.Sprintf("[%s{%s}@%s]", lb.Ap, lb.Service, r.RemoteAddr)
 	if err != nil && !strings.Contains(err.Error(), "EOF") {
@@ -156,6 +208,20 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		log.Println(prfx, "transfered", n, "bytes")
 	}
+}
+
+type ner struct {
+	r io.Reader
+}
+
+func (t *ner) Read(p []byte) (n int, err error) {
+	if n, err = t.r.Read(p); err != nil {
+		return
+	} else if n == 0 {
+		err = io.EOF
+		return
+	}
+	return
 }
 
 // RoundTrip is http.RoundTriper implementation.
@@ -197,8 +263,8 @@ func (srv *Server) RoundTrip(lb *LB, r *http.Request) (resp *http.Response, err 
 		outr.Header.Set("X-Forwarded-Host", r.Host)
 		outr.Header.Set("X-Forwarded-Proto", scheme)
 	}
-	if r.Header.Get("X-Root-Path") == "" && lb.HttpPath != "" && lb.HttpPath != "/" {
-		outr.Header.Set("X-Root-Path", lb.HttpPath)
+	if r.Header.Get(httpu.DefaultUriPrefixHeader) == "" && lb.HttpPath != "" && lb.HttpPath != "/" {
+		outr.Header.Set(httpu.DefaultUriPrefixHeader, lb.HttpPath)
 	}
 	outr.RequestURI = ""
 

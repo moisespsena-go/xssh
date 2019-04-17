@@ -20,7 +20,7 @@ type Node struct {
 	mu          sync.Mutex
 }
 
-func (n Node) CloseEndPont(addr string) {
+func (n Node) CloseEndPoint(addr string) {
 	if sl, ok := n.EndPoints[addr]; ok {
 		n.nodes.Remove(&LoadBalancer{Ap: n.Ap, Service: n.Service}, sl)
 	}
