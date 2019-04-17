@@ -19,7 +19,7 @@ import (
 	"github.com/moisespsena-go/overseer-task-restarts"
 	"github.com/moisespsena-go/task"
 	"github.com/moisespsena-go/xssh/forwarder"
-	"github.com/moisespsena/go-default-logger"
+	"github.com/moisespsena-go/default-logger"
 	"net"
 	"os"
 	"os/exec"
